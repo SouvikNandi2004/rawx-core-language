@@ -348,6 +348,28 @@ namespace RawX
         {
             MemoryOperand mem = new MemoryOperand { Size = size };
 
+            // Support [rel label] or [rel + label]
+            if (Current.Type == TokenType.Identifier && Current.Value.Equals("rel", StringComparison.OrdinalIgnoreCase))
+            {
+                Advance(); // 'rel'
+                if (Current.Type == TokenType.Plus) Advance();
+                if (Current.Type == TokenType.Identifier)
+                {
+                    mem.Label = Advance().Value;
+                }
+                if (Current.Type == TokenType.Plus || Current.Type == TokenType.Minus)
+                {
+                    bool isNeg = Current.Type == TokenType.Minus;
+                    Advance();
+                    if (Current.Type == TokenType.Number)
+                    {
+                        long num = Advance().NumValue;
+                        mem.Disp = isNeg ? -num : num;
+                    }
+                }
+                return mem;
+            }
+
             // Check if RIP-relative: [rip + label] or [label]
             if (Current.Type == TokenType.Register && Current.Value.Equals("rip", StringComparison.OrdinalIgnoreCase))
             {

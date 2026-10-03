@@ -117,6 +117,102 @@ cd rawx-core-language
 
 ---
 
+## ⚡ Direct Node.js & GitHub Raw Usage
+
+RawX features a **100% pure JavaScript AMD64 compiler and native execution engine** (`rawx.js`) with **zero external dependencies**. You can use RawX in **any Node.js project** directly via GitHub Raw links without cloning the repo or running `npm install`!
+
+### Method 1: Zero-Install Dynamic Import (GitHub Raw URL)
+Drop this snippet into any Node.js file to pull and run RawX on the fly:
+
+```javascript
+// Load RawX compiler dynamically from GitHub Raw (zero npm packages required!)
+const { RawX } = await (async () => {
+    const url = 'https://raw.githubusercontent.com/SouvikNandi2004/rawx-core-language/main/rawx.js';
+    const resp = await fetch(url);
+    const code = (await resp.text()).replace(/^#![^\r\n]*/, '');
+    const mod = { exports: {} };
+    new Function('module', 'exports', 'require', '__dirname', '__filename', code)(
+        mod, mod.exports, require, process.cwd(), 'rawx.js'
+    );
+    return mod.exports;
+})();
+
+// 1. Run a remote RawX file directly from GitHub Raw link:
+const result = await RawX.runUrl('https://raw.githubusercontent.com/SouvikNandi2004/rawx-core-language/main/examples/02_hello.rx');
+console.log(result.stdout);
+
+// 2. Synthesize and run inline AMD64 machine code from a JavaScript string:
+const inlineRes = await RawX.run(`
+    section .data
+    msg: db "Hello from Node.js in-memory RawX!", 10, 0
+    section .text
+    global _start
+    _start:
+        sub rsp, 40
+        mov rcx, -11
+        call GetStdHandle
+        mov rcx, rax
+        lea rdx, [rel msg]
+        mov r8, 38
+        lea r9, [rsp + 32]
+        mov qword [rsp + 32], 0
+        call WriteFile
+        xor ecx, ecx
+        call ExitProcess
+`);
+console.log(inlineRes.stdout);
+```
+
+### Method 2: Universal Remote GitHub Loader (`rawx-loader.js`)
+Run any local or remote `.rx` file directly with the built-in loader:
+
+```bash
+# Execute directly from GitHub raw URL:
+node rawx-loader.js https://raw.githubusercontent.com/SouvikNandi2004/rawx-core-language/main/examples/02_hello.rx -r
+
+# Or compile local files:
+node rawx-loader.js examples/01_registers.rx -r
+```
+
+### Method 3: Install via Git / NPM in your `package.json`
+You can install RawX directly as a dependency in your Node.js application:
+
+```bash
+npm install github:SouvikNandi2004/rawx-core-language
+```
+
+Then import it using CommonJS or ES Modules:
+
+```javascript
+// CommonJS
+const { RawX } = require('rawx-lang');
+
+// ES Module
+import { RawX } from 'rawx-lang';
+
+// Cross-compile to standalone Linux ELF or macOS Mach-O from Node.js
+const elfBinary = await RawX.compile(sourceCode, { target: 'linux', format: 'elf' });
+fs.writeFileSync('server_daemon.elf', elfBinary);
+```
+
+### Method 4: Remote HTTP/HTTPS `%include` in RawX Assembly
+You can import remote libraries directly inside any `.rx` file via GitHub Raw links:
+
+```assembly
+// Include remote library directly from GitHub
+%include "https://raw.githubusercontent.com/SouvikNandi2004/rawx-core-language/main/examples/math_lib.rx"
+
+section .text
+global _start
+_start:
+    mov rcx, 10
+    mov rdx, 20
+    call add_numbers
+    ...
+```
+
+---
+
 ## 🌐 Universal Cross-Platform Execution Matrix
 
 | Target Platform | Binary Format | ABI & Calling Convention | System Invocation |

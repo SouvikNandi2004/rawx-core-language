@@ -140,11 +140,11 @@ namespace RawX
                     continue;
                 }
 
-                // Handle NAME equ VALUE
+                // Handle NAME equ VALUE or NAME: equ VALUE
                 int equIdx = line.IndexOf(" equ ", StringComparison.OrdinalIgnoreCase);
                 if (equIdx > 0 && !line.StartsWith("//") && !line.StartsWith(";"))
                 {
-                    string sym = line.Substring(0, equIdx).Trim();
+                    string sym = line.Substring(0, equIdx).Trim().TrimEnd(':');
                     string val = line.Substring(equIdx + 5).Trim();
                     Define(sym, val);
                     output.AppendLine();
@@ -160,6 +160,48 @@ namespace RawX
                     if (quote1 >= 0 && quote2 > quote1)
                     {
                         string incName = line.Substring(quote1 + 1, quote2 - quote1 - 1);
+
+                        // Remote URL include (e.g. GitHub raw link)
+                        if (incName.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                            incName.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (!includedFiles.Contains(incName))
+                            {
+                                includedFiles.Add(incName);
+                                string cacheDir = Path.Combine(rootPath, ".rawx_cache");
+                                if (!Directory.Exists(cacheDir)) Directory.CreateDirectory(cacheDir);
+                                string cleanName = incName.Replace("https://", "").Replace("http://", "").Replace("/", "_").Replace(":", "_");
+                                string cacheFile = Path.Combine(cacheDir, cleanName);
+                                string incContent;
+                                try
+                                {
+                                    using (var client = new System.Net.WebClient())
+                                    {
+                                        incContent = client.DownloadString(incName);
+                                        File.WriteAllText(cacheFile, incContent);
+                                    }
+                                }
+                                catch
+                                {
+                                    if (File.Exists(cacheFile))
+                                    {
+                                        incContent = File.ReadAllText(cacheFile);
+                                    }
+                                    else
+                                    {
+                                        throw new Exception("Failed to fetch remote include URL: " + incName);
+                                    }
+                                }
+                                string processedInc = Process(incContent, null);
+                                output.AppendLine(processedInc);
+                            }
+                            else
+                            {
+                                output.AppendLine();
+                            }
+                            continue;
+                        }
+
                         string searchBase = currentFile != null ? Path.GetDirectoryName(currentFile) : rootPath;
                         string incPath = Path.Combine(searchBase, incName);
                         if (!File.Exists(incPath))

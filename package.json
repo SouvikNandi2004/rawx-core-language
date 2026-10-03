@@ -1,0 +1,55 @@
+{
+  "name": "rawx-lang",
+  "version": "2.0.0",
+  "description": "High-Performance AMD64 Bare-Metal Systems Programming Language & Native Toolchain for Node.js, Windows, Linux, and macOS",
+  "main": "rawx.js",
+  "module": "rawx.mjs",
+  "bin": {
+    "rawx": "./rawx.js",
+    "rxc": "./rawx.js",
+    "rawx-loader": "./rawx-loader.js"
+  },
+  "scripts": {
+    "test": "node rawx.js examples/02_hello.rx -r",
+    "compile:win": "node rawx.js examples/10_cross_platform_unified.rx -t windows -f pe",
+    "compile:linux": "node rawx.js examples/10_cross_platform_unified.rx -t linux -f elf",
+    "compile:mac": "node rawx.js examples/10_cross_platform_unified.rx -t macos -f macho"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SouvikNandi2004/rawx-core-language.git"
+  },
+  "keywords": [
+    "rawx",
+    "compiler",
+    "assembler",
+    "systems-programming",
+    "bare-metal",
+    "amd64",
+    "x86-64",
+    "simd",
+    "elf64",
+    "pe32plus",
+    "macho",
+    "zero-libc",
+    "native"
+  ],
+  "author": "Souvik Nandi (https://github.com/SouvikNandi2004)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/SouvikNandi2004/rawx-core-language/issues"
+  },
+  "homepage": "https://github.com/SouvikNandi2004/rawx-core-language#readme",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "files": [
+    "rawx.js",
+    "rawx.mjs",
+    "rawx-loader.js",
+    "src/",
+    "examples/",
+    "README.md",
+    "LICENSE"
+  ]
+}

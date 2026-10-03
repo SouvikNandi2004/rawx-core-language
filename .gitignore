@@ -22,3 +22,8 @@ bin/
 # Temporary test binaries
 generated_by_rawx.exe
 output.exe
+
+# RawX Remote Cache & Dependencies
+.rawx_cache/
+node_modules/
+

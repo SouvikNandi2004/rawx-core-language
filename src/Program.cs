@@ -119,7 +119,37 @@ namespace RawX
                 return 1;
             }
 
-            if (!File.Exists(srcPath))
+            string actualSourceFile = srcPath;
+            if (srcPath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                srcPath.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine(" [*] Fetching remote RawX source from URL...");
+                Console.WriteLine("     URL: " + srcPath);
+                try
+                {
+                    string cacheDir = Path.Combine(Directory.GetCurrentDirectory(), ".rawx_cache");
+                    if (!Directory.Exists(cacheDir)) Directory.CreateDirectory(cacheDir);
+                    string uriPath = new Uri(srcPath).AbsolutePath;
+                    string urlFile = Path.GetFileName(uriPath);
+                    if (string.IsNullOrEmpty(urlFile) || !urlFile.EndsWith(".rx"))
+                    {
+                        urlFile = "remote_" + Math.Abs(srcPath.GetHashCode()) + ".rx";
+                    }
+                    string localCached = Path.Combine(cacheDir, urlFile);
+                    using (var client = new System.Net.WebClient())
+                    {
+                        client.DownloadFile(srcPath, localCached);
+                    }
+                    actualSourceFile = localCached;
+                    Console.WriteLine(" [+] Successfully cached remote source -> " + localCached);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(" [Error] Failed to fetch remote source URL: " + ex.Message);
+                    return 1;
+                }
+            }
+            else if (!File.Exists(srcPath))
             {
                 Console.WriteLine("========================================================");
                 Console.WriteLine(" [RawX Native Compiler - RXC] 100% Pure Bare-Metal");
@@ -135,7 +165,7 @@ namespace RawX
             // Determine default output path
             if (string.IsNullOrEmpty(outPath))
             {
-                string baseName = Path.GetFileNameWithoutExtension(srcPath);
+                string baseName = Path.GetFileNameWithoutExtension(actualSourceFile);
                 string ext = ".exe";
                 if (format == BinaryFormat.ELF) ext = ".elf";
                 else if (format == BinaryFormat.MachO) ext = ".macho";
@@ -157,9 +187,9 @@ namespace RawX
                 Stopwatch sw = Stopwatch.StartNew();
 
                 // 1. Read & Preprocess
-                string rawSource = File.ReadAllText(srcPath);
-                Preprocessor prep = new Preprocessor(srcPath, target);
-                string preprocessed = prep.Process(rawSource, Path.GetFullPath(srcPath));
+                string rawSource = File.ReadAllText(actualSourceFile);
+                Preprocessor prep = new Preprocessor(actualSourceFile, target);
+                string preprocessed = prep.Process(rawSource, Path.GetFullPath(actualSourceFile));
 
                 // 2. Lexical Analysis
                 Lexer lexer = new Lexer(preprocessed);
