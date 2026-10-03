@@ -1,0 +1,121 @@
+// ============================================================================
+// RawX Example 03: Fibonacci Sequence with Custom Number Formatter
+// Demonstrates loops, conditionals, IDIV, memory buffers, and fast register ALU
+// ============================================================================
+
+section .data
+    title: db "--- RawX Native Fibonacci Generator (First 20 Numbers) ---\n", 0
+    prefix: db "Fib = ", 0
+
+section .bss
+    written: resb 8
+    num_buf: resb 32
+
+section .text
+entry main
+
+main:
+    sub rsp, 40
+
+    // Get stdout handle -> store in R12 (callee-saved)
+    mov rcx, -11
+    call GetStdHandle
+    mov r12, rax
+
+    // Print Title banner
+    lea rdx, [title]
+    mov r8, 59
+    call print_str
+
+    // Initialize Fibonacci in Registers
+    // R13 = F(n-1) = 0
+    // R14 = F(n)   = 1
+    // R15 = Counter = 20
+    mov r13, 0
+    mov r14, 1
+    mov r15, 20
+
+    // Print F(0) = 0
+    mov rax, r13
+    call print_number
+
+fib_loop:
+    // Print current Fibonacci number: R14
+    mov rax, r14
+    call print_number
+
+    // Next Fibonacci:
+    // R10 = R13 + R14
+    // R13 = R14
+    // R14 = R10
+    mov r10, r13
+    add r10, r14
+    mov r13, r14
+    mov r14, r10
+
+    // Decrement counter and loop
+    dec r15
+    cmp r15, 0
+    jg fib_loop
+
+    // Exit cleanly with final Fibonacci number in RAX
+    mov rax, r14
+    mov rcx, 0
+    call ExitProcess
+
+    add rsp, 40
+    ret
+
+// Helper: print string (RDX = buffer, R8 = length, R12 = handle)
+print_str:
+    sub rsp, 40
+    mov rcx, r12
+    lea r9, [written]
+    mov qword [rsp + 32], 0
+    call WriteFile
+    add rsp, 40
+    ret
+
+// Helper: print 64-bit integer in RAX
+// Converts RAX to ASCII in num_buf, appends newline, and prints
+print_number:
+    sub rsp, 56             // Align stack & preserve registers
+    mov qword [rsp + 32], rax // Save the input integer!
+    mov qword [rsp + 40], r13
+    mov qword [rsp + 48], r14
+
+    // Print "Fib = " prefix
+    lea rdx, [prefix]
+    mov r8, 6
+    call print_str
+
+    // Restore input integer back into RAX
+    mov rax, qword [rsp + 32]
+
+    // Format number into num_buf from back to front
+    lea rdi, [num_buf + 30] // Start near end of buffer
+    mov byte [rdi], 10      // '\n' (ASCII 10)
+    mov r8, 1               // Length = 1 (just the newline)
+
+    // Base 10 divisor in RBX
+    mov rbx, 10
+
+convert_loop:
+    dec rdi
+    inc r8
+    mov rdx, 0              // Clear RDX for 64-bit division RDX:RAX / RBX
+    idiv rbx                // RAX = RAX / 10, RDX = RAX % 10
+    add dl, 48              // '0' = ASCII 48
+    mov byte [rdi], dl
+
+    cmp rax, 0
+    jg convert_loop
+
+    // Print the formatted string: RDI is buffer start, R8 is length
+    mov rdx, rdi
+    call print_str
+
+    mov r13, qword [rsp + 40]
+    mov r14, qword [rsp + 48]
+    add rsp, 56
+    ret

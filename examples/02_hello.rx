@@ -1,0 +1,72 @@
+// ============================================================================
+// RawX Example 02: Native Windows Console Output
+// High-performance direct call to kernel32 via Windows x64 ABI
+// ============================================================================
+
+section .data
+    msg: db "========================================================\n", 0
+    msg2: db " [RawX] Hello, World from pure bare-metal x86-64!\n", 0
+    msg3: db " Running on native registers: RAX through R15\n", 0
+    msg4: db " Zero C runtime | Zero external linkers | 100% Native\n", 0
+    msg5: db "========================================================\n", 0
+
+section .bss
+    written: resb 8
+
+section .text
+entry main
+
+main:
+    // Align stack and reserve shadow space for Win64 calls (32 bytes shadow + 8 align)
+    sub rsp, 40
+
+    // Step 1: Get Standard Output Handle: GetStdHandle(STD_OUTPUT_HANDLE = -11)
+    mov rcx, -11
+    call GetStdHandle
+    // Handle is returned in RAX. Save to RBX
+    mov rbx, rax
+
+    // Step 2: Print Banner
+    lea rdx, [msg]
+    mov r8, 57              // Length of msg
+    call print_string
+
+    lea rdx, [msg2]
+    mov r8, 51              // Length of msg2
+    call print_string
+
+    lea rdx, [msg3]
+    mov r8, 46              // Length of msg3
+    call print_string
+
+    lea rdx, [msg4]
+    mov r8, 54              // Length of msg4
+    call print_string
+
+    lea rdx, [msg5]
+    mov r8, 57              // Length of msg5
+    call print_string
+
+    // Step 3: Exit cleanly via ExitProcess(0)
+    mov rcx, 0
+    call ExitProcess
+
+    // Clean up stack (unreached)
+    add rsp, 40
+    ret
+
+// Helper routine to call WriteFile
+// Inputs:
+//   RBX = Stdout Handle
+//   RDX = Pointer to string
+//   R8  = String length
+print_string:
+    sub rsp, 40             // Shadow space (32 bytes) + 8 align
+    mov rcx, rbx            // Arg 1: hFile
+    // RDX already has Arg 2: lpBuffer
+    // R8 already has Arg 3: nNumberOfBytesToWrite
+    lea r9, [written]       // Arg 4: lpNumberOfBytesWritten
+    mov qword [rsp + 32], 0 // Arg 5: lpOverlapped = NULL
+    call WriteFile
+    add rsp, 40
+    ret

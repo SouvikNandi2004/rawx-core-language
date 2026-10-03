@@ -1,0 +1,76 @@
+// ============================================================================
+// RawX Example 11: Hardware CPU Intrinsics & Modern Branchless Computing
+// Demonstrates:
+// 1. RDTSC (Read Time-Stamp Counter for nanosecond cycle benchmarking)
+// 2. PAUSE (CPU spin-loop power optimization)
+// 3. XCHG (Atomic register exchange)
+// 4. TEST and SETcc (Set byte on condition without branches)
+// 5. CMOVcc (Conditional Move for zero-branch-misprediction logic)
+// 6. CQO (64-bit Quadword sign extension into RDX:RAX)
+// ============================================================================
+
+section .data
+    msg: db "========================================================\n"
+         db " [RawX] Hardware Intrinsics & Branchless Computing\n"
+         db " Executing RDTSC, PAUSE, XCHG, TEST, CMOVcc, SETcc...\n"
+         db "========================================================\n", 0
+
+section .bss
+    written: resb 8
+
+section .text
+entry main
+
+main:
+    sub rsp, 40
+
+    // Print banner via Win64 ABI
+    mov rcx, -11
+    call GetStdHandle
+    mov rbx, rax
+
+    mov rcx, rbx
+    lea rdx, [msg]
+    mov r8, 224
+    lea r9, [written]
+    mov qword [rsp + 32], 0
+    call WriteFile
+
+    // 1. RDTSC: Read 64-bit CPU cycle counter into EDX:EAX
+    rdtsc
+    mov r12, rax                // Save initial cycle count lower 32-bits in R12
+
+    // 2. PAUSE: Hardware spin-wait hint
+    pause
+    pause
+
+    // 3. XCHG: Atomic exchange between registers
+    mov rax, 0xAAAA
+    mov rbx, 0xBBBB
+    xchg rax, rbx               // rax is now 0xBBBB, rbx is 0xAAAA
+
+    // 4. TEST & SETcc: Branchless Boolean evaluation
+    mov rcx, 500
+    cmp rcx, 1000
+    setl al                     // al = 1 because 500 < 1000!
+
+    // 5. CMOVcc: Branchless Conditional Move
+    mov rdx, 100                // Default value
+    mov r8,  999                // Alternate value
+    cmp rax, rbx
+    cmovg rdx, r8               // If rax > rbx, rdx = 999 without any branch!
+
+    // 6. CQO: Sign-extend RAX into RDX:RAX for 64-bit integer division
+    mov rax, 42
+    cqo                         // Sets RDX to 0 (sign extension of 42)
+
+    // Measure elapsed cycles
+    rdtsc
+    sub rax, r12                // rax = elapsed CPU clock cycles!
+
+    // Exit cleanly
+    mov rcx, 0
+    call ExitProcess
+
+    add rsp, 40
+    ret

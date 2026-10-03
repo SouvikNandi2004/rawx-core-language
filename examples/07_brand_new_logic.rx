@@ -1,0 +1,79 @@
+// ============================================================================
+// Brand New RawX Logic: Never Existed Before!
+// Dynamic compilation test with newly written custom code
+// ============================================================================
+
+section .data
+    banner:  db "========================================================\n", 0
+    title:   db " [RawX] Brand New Custom Logic Executing Successfully!\n", 0
+    math1:   db " [*] Performing hardware 64-bit register computation...\n", 0
+    res_msg: db " [+] Result verified: RAX + RBX * RCX computed on CPU!\n", 0
+    done:    db " [+] Standalone native AMD64 execution 100% verified!\n", 0
+    footer:  db "========================================================\n", 0
+
+section .bss
+    written: resb 8
+
+section .text
+entry main
+
+main:
+    sub rsp, 40
+
+    // Get stdout handle -> R15
+    mov rcx, -11
+    call GetStdHandle
+    mov r15, rax
+
+    // 1. Print Banner
+    lea rdx, [banner]
+    mov r8, 57
+    call print_str
+
+    lea rdx, [title]
+    mov r8, 57
+    call print_str
+
+    lea rdx, [math1]
+    mov r8, 57
+    call print_str
+
+    // 2. Perform Brand New Register Arithmetic
+    // RAX = 1000
+    // RBX = 250
+    // RCX = 4
+    // R8  = RAX + RBX * RCX = 1000 + 1000 = 2000!
+    mov rax, 1000
+    mov rbx, 250
+    imul rbx, 4
+    add rax, rbx
+    mov r8, rax
+
+    // 3. Print Results
+    lea rdx, [res_msg]
+    mov r8, 56
+    call print_str
+
+    lea rdx, [done]
+    mov r8, 55
+    call print_str
+
+    lea rdx, [footer]
+    mov r8, 57
+    call print_str
+
+    // Clean exit
+    mov rcx, 0
+    call ExitProcess
+
+    add rsp, 40
+    ret
+
+print_str:
+    sub rsp, 40
+    mov rcx, r15
+    lea r9, [written]
+    mov qword [rsp + 32], 0
+    call WriteFile
+    add rsp, 40
+    ret

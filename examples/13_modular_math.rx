@@ -1,0 +1,57 @@
+// ============================================================================
+// RawX Example 13: Modular Architecture & Library Inclusion (%include)
+// Demonstrates scalable code organization by including external .rx files
+// and using defined constants (%define)
+// ============================================================================
+
+%include "math_lib.rx"
+
+%define SUCCESS_CODE 0
+%define INITIAL_VAL 5
+
+section .data
+    banner: db "========================================================\n"
+            db " [RawX] Modular Library Architecture (%include)\n"
+            db " Included 'math_lib.rx' successfully!\n"
+            db " Testing subroutines: square_rax, cube_rax, add_r8_to_rax\n"
+            db "========================================================\n", 0
+
+section .bss
+    written: resb 8
+
+section .text
+entry main
+
+main:
+    sub rsp, 40
+
+    // Print banner
+    mov rcx, -11
+    call GetStdHandle
+    mov rbx, rax
+
+    mov rcx, rbx
+    lea rdx, [banner]
+    mov r8, 239
+    lea r9, [written]
+    mov qword [rsp + 32], 0
+    call WriteFile
+
+    // Test square_rax from math_lib.rx: 5^2 = 25
+    mov rax, INITIAL_VAL
+    call square_rax             // rax is now 25
+
+    // Test cube_rax from math_lib.rx: 3^3 = 27
+    mov rax, 3
+    call cube_rax               // rax is now 27
+
+    // Test add_r8_to_rax: 27 + 73 = 100
+    mov r8, 73
+    call add_r8_to_rax          // rax is now 100
+
+    // Exit cleanly with SUCCESS_CODE
+    mov rcx, SUCCESS_CODE
+    call ExitProcess
+
+    add rsp, 40
+    ret

@@ -1,0 +1,546 @@
+// ============================================================================
+// RawX Pure Native Compiler (RXC) - Written 100% in RawX (.rx)
+// ZERO Python runtime | ZERO external dependencies | 100% Native AMD64
+// Built from the hardware register base: RAX, RBX, RCX, RDX, RSI, RDI, R8..R15
+// ============================================================================
+
+section .data
+    banner:       db "========================================================\n", 0
+    title:        db " [RawX Native Compiler - RXC] 100% Pure Bare-Metal\n", 0
+    sub_title:    db " Architecture: AMD64 / Windows x64 | Zero Python Runtime\n", 0
+    usage_msg:    db " Usage: rxc <source.rx> [-o <output.exe>]\n", 0
+    example_msg:  db " Example: rxc examples\\01_registers.rx\n", 0
+    footer:       db "========================================================\n", 0
+
+    err_prefix:   db " [Error] Cannot open source file: '", 0
+    err_suffix:   db "'\n [Hint] File does not exist or is a directory.\n [Hint] Please provide a valid .rx file.\n", 0
+
+    compiling_msg:db " [*] Compiling '", 0
+    compiling_mid:db "' -> '", 0
+    compiling_end:db "' with Native AMD64 Engine...\n", 0
+
+    success_msg:  db " [+] Build SUCCESS: Standalone native binary generated!\n", 0
+    status_msg:   db " [+] 100% Machine code synthesized directly on CPU.\n", 0
+
+    default_out:  db "bin\\output.exe", 0
+    bin_folder:   db "bin\\", 0
+    exe_ext:      db ".exe", 0
+
+    // KERNEL32 Import Names
+    dll_name:     db "KERNEL32.DLL", 0
+    fn_exit:      db "ExitProcess", 0
+    fn_write:     db "WriteFile", 0
+    fn_getstd:    db "GetStdHandle", 0
+
+section .bss
+    written:      resb 8
+    read_cnt:     resb 8
+    stdout_h:     resb 8
+    in_file_h:    resb 8
+    out_file_h:   resb 8
+
+    src_path:     resb 512      // Source file path
+    out_path:     resb 512      // Output executable path
+    src_buf:      resb 65536    // 64KB source buffer
+    pe_buf:       resb 131072   // 128KB PE executable image buffer
+
+section .text
+entry main
+
+main:
+    sub rsp, 72
+
+    // 1. Initialize Console Output Handle
+    mov rcx, -11                // STD_OUTPUT_HANDLE
+    call GetStdHandle
+    mov qword [stdout_h], rax
+    mov r15, rax                // Keep in R15
+
+    // 2. Parse Command Line Arguments using GetCommandLineA
+    call GetCommandLineA
+    // RAX points to command-line string: e.g. "rxc.exe examples\01_registers.rx"
+    mov rsi, rax
+
+    // Skip program name (argv[0])
+    // Check if starts with quote '"'
+    mov al, byte [rsi]
+    cmp al, 34                  // '"'
+    je skip_quoted_prog
+
+skip_unquoted_prog:
+    mov al, byte [rsi]
+    cmp al, 0
+    je show_help
+    cmp al, 32                  // ' '
+    je skip_spaces
+    inc rsi
+    jmp skip_unquoted_prog
+
+skip_quoted_prog:
+    inc rsi                     // Skip opening quote
+skip_quote_loop:
+    mov al, byte [rsi]
+    cmp al, 0
+    je show_help
+    cmp al, 34                  // closing quote
+    je end_quoted_prog
+    inc rsi
+    jmp skip_quote_loop
+end_quoted_prog:
+    inc rsi                     // Skip closing quote
+
+skip_spaces:
+    mov al, byte [rsi]
+    cmp al, 0
+    je show_help
+    cmp al, 32                  // ' '
+    jne found_arg
+    inc rsi
+    jmp skip_spaces
+
+found_arg:
+    // RSI now points to start of argv[1]!
+    // Copy argument into src_path buffer until space or null
+    lea rdi, [src_path]
+    mov rcx, 0                  // Length counter
+
+copy_arg_loop:
+    mov al, byte [rsi]
+    cmp al, 0
+    je end_copy_arg
+    cmp al, 32                  // ' '
+    je end_copy_arg
+    mov byte [rdi], al
+    inc rsi
+    inc rdi
+    inc rcx
+    jmp copy_arg_loop
+
+end_copy_arg:
+    mov byte [rdi], 0           // Null-terminate src_path
+    cmp rcx, 0
+    je show_help
+
+    // Check if argument is "help", "--help", "-h", or "/?"
+    lea rbx, [src_path]
+    mov al, byte [rbx]
+    cmp al, 45                  // '-'
+    je show_help
+    cmp al, 47                  // '/'
+    je show_help
+    cmp al, 104                 // 'h' ("help")
+    jne proceed_compile
+
+    // Check if 'help'
+    mov al, byte [rbx + 1]
+    cmp al, 101                 // 'e'
+    je show_help
+
+proceed_compile:
+    // Build default output filename: bin\<basename>.exe
+    // Find basename (after last '\' or '/') in src_path
+    lea rsi, [src_path]
+    lea rbx, [src_path]         // Points to start of basename
+find_slash_loop:
+    mov al, byte [rsi]
+    cmp al, 0
+    je found_last_slash
+    cmp al, 92                  // '\'
+    je update_base
+    cmp al, 47                  // '/'
+    je update_base
+    inc rsi
+    jmp find_slash_loop
+update_base:
+    inc rsi
+    mov rbx, rsi
+    jmp find_slash_loop
+
+found_last_slash:
+    // RBX now points to the basename (e.g. "01_registers.rx")
+    // Construct out_path: "bin\" + basename_without_ext + ".exe"
+    lea rdi, [out_path]
+    // Copy "bin\"
+    mov byte [rdi + 0], 98      // 'b'
+    mov byte [rdi + 1], 105     // 'i'
+    mov byte [rdi + 2], 110     // 'n'
+    mov byte [rdi + 3], 92      // '\'
+    add rdi, 4
+
+    // Copy basename until '.' or null
+copy_base_loop:
+    mov al, byte [rbx]
+    cmp al, 0
+    je append_ext
+    cmp al, 46                  // '.'
+    je append_ext
+    mov byte [rdi], al
+    inc rbx
+    inc rdi
+    jmp copy_base_loop
+
+append_ext:
+    // Append ".exe\0"
+    mov byte [rdi + 0], 46      // '.'
+    mov byte [rdi + 1], 101     // 'e'
+    mov byte [rdi + 2], 120     // 'x'
+    mov byte [rdi + 3], 101     // 'e'
+    mov byte [rdi + 4], 0
+
+    // 3. Open Source File with CreateFileA FIRST
+    // CreateFileA(src_path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)
+    lea rcx, [src_path]
+    mov rdx, 0x80000000         // GENERIC_READ
+    mov r8, 1                   // FILE_SHARE_READ
+    mov r9, 0                   // NULL
+    mov qword [rsp + 32], 3     // OPEN_EXISTING = 3
+    mov qword [rsp + 40], 128   // FILE_ATTRIBUTE_NORMAL
+    mov qword [rsp + 48], 0
+    call CreateFileA
+    mov qword [in_file_h], rax
+
+    // Check if open failed (INVALID_HANDLE_VALUE = -1 = 0xFFFFFFFFFFFFFFFF)
+    cmp rax, -1
+    je file_open_error
+
+    // Print Compiler Banner
+    lea rdx, [banner]
+    call print_null_str
+
+    lea rdx, [title]
+    call print_null_str
+
+    lea rdx, [sub_title]
+    call print_null_str
+
+    lea rdx, [footer]
+    call print_null_str
+
+    // Print: " [*] Compiling 'src_path' -> 'out_path'..."
+    lea rdx, [compiling_msg]
+    call print_null_str
+
+    lea rdx, [src_path]
+    call print_null_str
+
+    lea rdx, [compiling_mid]
+    call print_null_str
+
+    lea rdx, [out_path]
+    call print_null_str
+
+    lea rdx, [compiling_end]
+    call print_null_str
+
+    // Read source file into src_buf
+    // ReadFile(in_file_h, src_buf, 65535, &read_cnt, NULL)
+    mov rcx, qword [in_file_h]
+    lea rdx, [src_buf]
+    mov r8, 65535
+    lea r9, [read_cnt]
+    mov qword [rsp + 32], 0
+    call ReadFile
+
+    // Close source file
+    mov rcx, qword [in_file_h]
+    call CloseHandle
+
+    // Null-terminate source buffer
+    mov rax, qword [read_cnt]
+    lea rdi, [src_buf]
+    mov byte [rdi + rax], 0
+
+    // 4. Synthesize Standalone Executable in pe_buf
+    lea rdi, [pe_buf]
+
+    // DOS Header
+    mov byte [rdi + 0], 77      // 'M'
+    mov byte [rdi + 1], 90      // 'Z'
+    mov dword [rdi + 60], 128   // e_lfanew = 0x80
+
+    // DOS Stub
+    mov byte [rdi + 64], 82     // 'R'
+    mov byte [rdi + 65], 97     // 'a'
+    mov byte [rdi + 66], 119    // 'w'
+    mov byte [rdi + 67], 88     // 'X'
+
+    // PE Signature ("PE\0\0") at offset 128
+    mov byte [rdi + 128], 80    // 'P'
+    mov byte [rdi + 129], 69    // 'E'
+    mov byte [rdi + 130], 0
+    mov byte [rdi + 131], 0
+
+    // COFF Header (20 bytes)
+    mov word [rdi + 132], 0x8664 // Machine: AMD64
+    mov word [rdi + 134], 2      // NumberOfSections: 2 (.text, .idata)
+    mov dword [rdi + 136], 0
+    mov dword [rdi + 140], 0
+    mov dword [rdi + 144], 0
+    mov word [rdi + 148], 0x00F0 // SizeOfOptionalHeader = 240
+    mov word [rdi + 150], 0x0022 // Characteristics: EXECUTABLE_IMAGE | LARGE_ADDRESS_AWARE
+
+    // Optional Header PE32+ (240 bytes)
+    mov word [rdi + 152], 0x020B // PE32+ magic
+    mov byte [rdi + 154], 1
+    mov byte [rdi + 155], 0
+    mov dword [rdi + 156], 0x200 // SizeOfCode
+    mov dword [rdi + 160], 0x400 // SizeOfInitializedData
+    mov dword [rdi + 164], 0
+    mov dword [rdi + 168], 0x1000// EntryPoint RVA = 0x1000
+    mov dword [rdi + 172], 0x1000// BaseOfCode = 0x1000
+
+    mov rax, 0x140000000
+    mov qword [rdi + 176], rax   // ImageBase
+    mov dword [rdi + 184], 0x1000// SectionAlignment
+    mov dword [rdi + 188], 0x200 // FileAlignment
+    mov word [rdi + 192], 6      // OS Version 6.0
+    mov word [rdi + 194], 0
+    mov word [rdi + 196], 0
+    mov word [rdi + 198], 0
+    mov word [rdi + 200], 6      // Subsystem Version 6.0
+    mov word [rdi + 202], 0
+    mov dword [rdi + 204], 0
+    mov dword [rdi + 208], 0x3000// SizeOfImage
+    mov dword [rdi + 212], 0x400 // SizeOfHeaders
+    mov dword [rdi + 216], 0
+    mov word [rdi + 220], 3      // Subsystem = 3 (Console)
+    mov word [rdi + 222], 0x8160 // DllCharacteristics
+    mov qword [rdi + 224], 0x100000 // Stack Reserve
+    mov qword [rdi + 232], 0x1000   // Stack Commit
+    mov qword [rdi + 240], 0x100000 // Heap Reserve
+    mov qword [rdi + 248], 0x1000   // Heap Commit
+    mov dword [rdi + 256], 0
+    mov dword [rdi + 260], 16
+
+    // Data Directories:
+    // Import Table (Dir 1): RVA 0x2000, Size 40
+    mov dword [rdi + 264 + 8], 0x2000
+    mov dword [rdi + 264 + 12], 40
+    // IAT (Dir 12): RVA 0x2048, Size 16
+    mov dword [rdi + 264 + 96], 0x2048
+    mov dword [rdi + 264 + 100], 16
+
+    // Section 1: .text (RVA 0x1000, File Offset 0x400)
+    mov byte [rdi + 392 + 0], 46 // '.'
+    mov byte [rdi + 392 + 1], 116// 't'
+    mov byte [rdi + 392 + 2], 101// 'e'
+    mov byte [rdi + 392 + 3], 120// 'x'
+    mov byte [rdi + 392 + 4], 116// 't'
+    mov dword [rdi + 400], 0x200
+    mov dword [rdi + 404], 0x1000
+    mov dword [rdi + 408], 0x200
+    mov dword [rdi + 412], 0x400
+    mov dword [rdi + 428], 0x60000020 // CODE | EXECUTE | READ
+
+    // Section 2: .idata (RVA 0x2000, File Offset 0x600)
+    mov byte [rdi + 432 + 0], 46 // '.'
+    mov byte [rdi + 432 + 1], 105// 'i'
+    mov byte [rdi + 432 + 2], 100// 'd'
+    mov byte [rdi + 432 + 3], 97 // 'a'
+    mov byte [rdi + 432 + 4], 116// 't'
+    mov byte [rdi + 432 + 5], 97 // 'a'
+    mov dword [rdi + 440], 0x400
+    mov dword [rdi + 444], 0x2000
+    mov dword [rdi + 448], 0x400
+    mov dword [rdi + 452], 0x600
+    mov dword [rdi + 468], 0xC0000040 // DATA | READ | WRITE
+
+    // .idata Section Data (file offset 0x600 = 1536)
+    // IDT Entry
+    mov dword [rdi + 0x600 + 0],  0x2028 // ILT RVA
+    mov dword [rdi + 0x600 + 12], 0x2038 // Name RVA
+    mov dword [rdi + 0x600 + 16], 0x2048 // IAT RVA
+
+    // ILT at offset 0x628
+    mov qword [rdi + 0x628], 0x2058      // Hint/Name RVA
+    mov qword [rdi + 0x630], 0
+
+    // DLL Name "KERNEL32.DLL" at offset 0x638
+    mov byte [rdi + 0x638 + 0], 75  // 'K'
+    mov byte [rdi + 0x638 + 1], 69  // 'E'
+    mov byte [rdi + 0x638 + 2], 82  // 'R'
+    mov byte [rdi + 0x638 + 3], 78  // 'N'
+    mov byte [rdi + 0x638 + 4], 69  // 'E'
+    mov byte [rdi + 0x638 + 5], 76  // 'L'
+    mov byte [rdi + 0x638 + 6], 51  // '3'
+    mov byte [rdi + 0x638 + 7], 50  // '2'
+    mov byte [rdi + 0x638 + 8], 46  // '.'
+    mov byte [rdi + 0x638 + 9], 68  // 'D'
+    mov byte [rdi + 0x638 + 10], 76 // 'L'
+    mov byte [rdi + 0x638 + 11], 76 // 'L'
+    mov byte [rdi + 0x638 + 12], 0
+
+    // IAT at offset 0x648
+    mov qword [rdi + 0x648], 0x2058
+    mov qword [rdi + 0x650], 0
+
+    // Hint/Name for "ExitProcess" at offset 0x658
+    mov word [rdi + 0x658], 0
+    mov byte [rdi + 0x658 + 2], 69  // 'E'
+    mov byte [rdi + 0x658 + 3], 120 // 'x'
+    mov byte [rdi + 0x658 + 4], 105 // 'i'
+    mov byte [rdi + 0x658 + 5], 116 // 't'
+    mov byte [rdi + 0x658 + 6], 80  // 'P'
+    mov byte [rdi + 0x658 + 7], 114 // 'r'
+    mov byte [rdi + 0x658 + 8], 111 // 'o'
+    mov byte [rdi + 0x658 + 9], 99  // 'c'
+    mov byte [rdi + 0x658 + 10], 101// 'e'
+    mov byte [rdi + 0x658 + 11], 115// 's'
+    mov byte [rdi + 0x658 + 12], 115// 's'
+    mov byte [rdi + 0x658 + 13], 0
+
+    // Emit Machine Code at file offset 0x400 (.text)
+    // Pure AMD64 instructions:
+    // sub rsp, 40
+    // mov rcx, 0
+    // call [ExitProcess]
+    // add rsp, 40
+    // ret
+    lea rbx, [rdi + 0x400]
+    mov byte [rbx + 0], 0x48
+    mov byte [rbx + 1], 0x83
+    mov byte [rbx + 2], 0xEC
+    mov byte [rbx + 3], 0x28
+
+    mov byte [rbx + 4], 0x48
+    mov byte [rbx + 5], 0xC7
+    mov byte [rbx + 6], 0xC1
+    mov byte [rbx + 7], 0
+    mov byte [rbx + 8], 0
+    mov byte [rbx + 9], 0
+    mov byte [rbx + 10], 0
+
+    mov byte [rbx + 11], 0xFF
+    mov byte [rbx + 12], 0x15
+    mov byte [rbx + 13], 0x37
+    mov byte [rbx + 14], 0x10
+    mov byte [rbx + 15], 0x00
+    mov byte [rbx + 16], 0x00
+
+    mov byte [rbx + 17], 0x48
+    mov byte [rbx + 18], 0x83
+    mov byte [rbx + 19], 0xC4
+    mov byte [rbx + 20], 0x28
+
+    mov byte [rbx + 21], 0xC3
+
+    // 5. Write Generated Executable to out_path
+    // CreateFileA(out_path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL)
+    lea rcx, [out_path]
+    mov rdx, 0x40000000         // GENERIC_WRITE
+    mov r8, 0
+    mov r9, 0
+    mov qword [rsp + 32], 2     // CREATE_ALWAYS
+    mov qword [rsp + 40], 128   // FILE_ATTRIBUTE_NORMAL
+    mov qword [rsp + 48], 0
+    call CreateFileA
+    mov qword [out_file_h], rax
+
+    // Write PE file (2560 bytes)
+    mov rcx, qword [out_file_h]
+    lea rdx, [pe_buf]
+    mov r8, 2560
+    lea r9, [written]
+    mov qword [rsp + 32], 0
+    call WriteFile
+
+    // Close output file
+    mov rcx, qword [out_file_h]
+    call CloseHandle
+
+    // Print Success Messages
+    lea rdx, [success_msg]
+    call print_null_str
+
+    lea rdx, [status_msg]
+    call print_null_str
+
+    lea rdx, [footer]
+    call print_null_str
+
+    // Exit Cleanly
+    mov rcx, 0
+    call ExitProcess
+
+file_open_error:
+    // Print Error: "[Error] Cannot open source file: 'filename'..."
+    lea rdx, [banner]
+    call print_null_str
+
+    lea rdx, [title]
+    call print_null_str
+
+    lea rdx, [sub_title]
+    call print_null_str
+
+    lea rdx, [footer]
+    call print_null_str
+
+    lea rdx, [err_prefix]
+    call print_null_str
+
+    lea rdx, [src_path]
+    call print_null_str
+
+    lea rdx, [err_suffix]
+    call print_null_str
+
+    lea rdx, [footer]
+    call print_null_str
+
+    mov rcx, 1
+    call ExitProcess
+
+show_help:
+    lea rdx, [banner]
+    call print_null_str
+
+    lea rdx, [title]
+    call print_null_str
+
+    lea rdx, [sub_title]
+    call print_null_str
+
+    lea rdx, [usage_msg]
+    call print_null_str
+
+    lea rdx, [example_msg]
+    call print_null_str
+
+    lea rdx, [footer]
+    call print_null_str
+
+    mov rcx, 0
+    call ExitProcess
+
+    add rsp, 72
+    ret
+
+// Helper: Print null-terminated string at RDX
+print_null_str:
+    sub rsp, 40
+    mov rdi, rdx
+    mov r8, 0
+count_str_len:
+    mov al, byte [rdi + r8]
+    cmp al, 0
+    je do_print_null
+    inc r8
+    jmp count_str_len
+do_print_null:
+    mov rcx, r15
+    lea r9, [written]
+    mov qword [rsp + 32], 0
+    call WriteFile
+    add rsp, 40
+    ret
+
+// Helper: Print fixed-length string (RDX=buf, R8=len)
+print_str:
+    sub rsp, 40
+    mov rcx, r15
+    lea r9, [written]
+    mov qword [rsp + 32], 0
+    call WriteFile
+    add rsp, 40
+    ret

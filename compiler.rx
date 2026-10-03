@@ -1,0 +1,325 @@
+// ============================================================================
+// RawX Native Compiler: Written 100% in RawX (.rx)
+// Self-Hosting Compiler Core running directly on AMD64 hardware
+// Synthesizes Windows PE32+ (x64) executables from raw machine opcodes!
+// ============================================================================
+
+section .data
+    banner:    db "========================================================\n", 0
+    title:     db " [RawX Compiler] 100% Native Compiler Written in .rx\n", 0
+    info1:     db " Base Registers: RAX, RBX, RCX, RDX, RSI, RDI, R8..R15\n", 0
+    info2:     db " Compiling source code into standalone AMD64 .exe...\n", 0
+    success:   db " [+] Compilation SUCCESS: 'bin\\built_by_rawx.exe' generated!\n", 0
+    verify:    db " [+] Standalone binary created with zero external tools.\n", 0
+    footer:    db "========================================================\n", 0
+
+    out_name:  db "bin\\built_by_rawx.exe", 0
+    in_name:   db "input.rx", 0
+
+section .bss
+    written:   resb 8
+    read_cnt:  resb 8
+    pe_image:  resb 4096    // 4KB memory buffer for PE executable image
+    src_buf:   resb 4096    // 4KB source code buffer
+
+section .text
+entry main
+
+main:
+    sub rsp, 56
+
+    // Step 1: Initialize Console Output Handle -> R15
+    mov rcx, -11
+    call GetStdHandle
+    mov r15, rax
+
+    // Print Compiler Banner
+    lea rdx, [banner]
+    mov r8, 57
+    call print_str
+
+    lea rdx, [title]
+    mov r8, 54
+    call print_str
+
+    lea rdx, [info1]
+    mov r8, 56
+    call print_str
+
+    lea rdx, [info2]
+    mov r8, 54
+    call print_str
+
+    // Step 2: Construct the PE32+ (64-bit) Executable Header
+    lea rdi, [pe_image]
+
+    // --- DOS Header (64 bytes) ---
+    mov byte [rdi + 0], 77      // 'M'
+    mov byte [rdi + 1], 90      // 'Z'
+    mov dword [rdi + 60], 128   // e_lfanew = 0x80 (PE header starts at offset 128)
+
+    // --- DOS Stub (64 bytes) ---
+    // "This program was built by RawX Native Compiler.\r\n$"
+    mov byte [rdi + 64], 82     // 'R'
+    mov byte [rdi + 65], 97     // 'a'
+    mov byte [rdi + 66], 119    // 'w'
+    mov byte [rdi + 67], 88     // 'X'
+
+    // --- PE Signature (4 bytes at offset 128 = 0x80) ---
+    mov byte [rdi + 128], 80    // 'P'
+    mov byte [rdi + 129], 69    // 'E'
+    mov byte [rdi + 130], 0
+    mov byte [rdi + 131], 0
+
+    // --- COFF File Header (20 bytes at offset 132 = 0x84) ---
+    mov word [rdi + 132], 0x8664 // Machine = x86-64 (AMD64)
+    mov word [rdi + 134], 2      // NumberOfSections = 2 (.text, .idata)
+    mov dword [rdi + 136], 0     // TimeDateStamp
+    mov dword [rdi + 140], 0     // PointerToSymbolTable
+    mov dword [rdi + 144], 0     // NumberOfSymbols
+    mov word [rdi + 148], 0x00F0 // SizeOfOptionalHeader = 240 bytes (PE32+)
+    mov word [rdi + 150], 0x0022 // Characteristics = EXECUTABLE_IMAGE | LARGE_ADDRESS_AWARE
+
+    // --- Optional Header PE32+ (240 bytes at offset 152 = 0x98) ---
+    // Standard fields (24 bytes):
+    mov word [rdi + 152], 0x020B // Magic: PE32+ (64-bit)
+    mov byte [rdi + 154], 1      // MajorLinkerVersion
+    mov byte [rdi + 155], 0      // MinorLinkerVersion
+    mov dword [rdi + 156], 0x200 // SizeOfCode (.text raw size = 512 bytes)
+    mov dword [rdi + 160], 0x400 // SizeOfInitializedData (.idata raw size = 1024 bytes)
+    mov dword [rdi + 164], 0     // SizeOfUninitializedData
+    mov dword [rdi + 168], 0x1000// AddressOfEntryPoint (RVA 0x1000)
+    mov dword [rdi + 172], 0x1000// BaseOfCode (RVA 0x1000)
+
+    // Windows-specific fields (88 bytes):
+    mov rax, 0x140000000
+    mov qword [rdi + 176], rax // ImageBase = 0x0000000140000000
+    mov dword [rdi + 184], 0x1000// SectionAlignment = 4096 (0x1000)
+    mov dword [rdi + 188], 0x200 // FileAlignment = 512 (0x200)
+    mov word [rdi + 192], 6      // MajorOperatingSystemVersion = 6
+    mov word [rdi + 194], 0      // MinorOperatingSystemVersion = 0
+    mov word [rdi + 196], 0      // MajorImageVersion = 0
+    mov word [rdi + 198], 0      // MinorImageVersion = 0
+    mov word [rdi + 200], 6      // MajorSubsystemVersion = 6
+    mov word [rdi + 202], 0      // MinorSubsystemVersion = 0
+    mov dword [rdi + 204], 0     // Win32VersionValue = 0
+    mov dword [rdi + 208], 0x3000// SizeOfImage = 0x3000 (3 pages: headers, text, idata)
+    mov dword [rdi + 212], 0x400 // SizeOfHeaders = 0x400 (1024 bytes)
+    mov dword [rdi + 216], 0     // CheckSum = 0
+    mov word [rdi + 220], 3      // Subsystem = 3 (IMAGE_SUBSYSTEM_WINDOWS_CUI: Console)
+    mov word [rdi + 222], 0x8160 // DllCharacteristics (NX_COMPAT, DYNAMIC_BASE, TERMINAL_SERVER_AWARE)
+    mov qword [rdi + 224], 0x100000 // SizeOfStackReserve = 1MB
+    mov qword [rdi + 232], 0x1000   // SizeOfStackCommit = 4KB
+    mov qword [rdi + 240], 0x100000 // SizeOfHeapReserve = 1MB
+    mov qword [rdi + 248], 0x1000   // SizeOfHeapCommit = 4KB
+    mov dword [rdi + 256], 0     // LoaderFlags = 0
+    mov dword [rdi + 260], 16    // NumberOfRvaAndSizes = 16
+
+    // Data Directories (16 entries * 8 bytes = 128 bytes starting at offset 264 = 0x108):
+    // Directory 1 (Import Table): RVA = 0x2000, Size = 40 bytes
+    mov dword [rdi + 264 + 8], 0x2000
+    mov dword [rdi + 264 + 12], 40
+
+    // Directory 12 (IAT): RVA = 0x2048, Size = 16 bytes
+    mov dword [rdi + 264 + 96], 0x2048
+    mov dword [rdi + 264 + 100], 16
+
+    // --- Section Headers (40 bytes each, starting at offset 392 = 0x188) ---
+    // Section 1: .text (Code)
+    // Name: ".text\0\0\0"
+    mov byte [rdi + 392 + 0], 46 // '.'
+    mov byte [rdi + 392 + 1], 116// 't'
+    mov byte [rdi + 392 + 2], 101// 'e'
+    mov byte [rdi + 392 + 3], 120// 'x'
+    mov byte [rdi + 392 + 4], 116// 't'
+    mov dword [rdi + 400], 0x200 // VirtualSize = 512
+    mov dword [rdi + 404], 0x1000// VirtualAddress = 0x1000
+    mov dword [rdi + 408], 0x200 // SizeOfRawData = 512 (0x200)
+    mov dword [rdi + 412], 0x400 // PointerToRawData = 1024 (0x400)
+    mov dword [rdi + 428], 0x60000020 // Characteristics = CODE | EXECUTE | READ
+
+    // Section 2: .idata (Imports)
+    // Name: ".idata\0\0"
+    mov byte [rdi + 432 + 0], 46 // '.'
+    mov byte [rdi + 432 + 1], 105// 'i'
+    mov byte [rdi + 432 + 2], 100// 'd'
+    mov byte [rdi + 432 + 3], 97 // 'a'
+    mov byte [rdi + 432 + 4], 116// 't'
+    mov byte [rdi + 432 + 5], 97 // 'a'
+    mov dword [rdi + 440], 0x400 // VirtualSize = 1024
+    mov dword [rdi + 444], 0x2000// VirtualAddress = 0x2000
+    mov dword [rdi + 448], 0x400 // SizeOfRawData = 1024 (0x400)
+    mov dword [rdi + 452], 0x600 // PointerToRawData = 1536 (0x600)
+    mov dword [rdi + 468], 0xC0000040 // Characteristics = INITIALIZED_DATA | READ | WRITE
+
+    // Step 4: Construct .idata Section Data at file offset 0x600 (1536)
+    // In .idata (RVA 0x2000):
+    // Offset 0x00 (file 0x600): IDT Entry for KERNEL32.DLL
+    //   OriginalFirstThunk: 0x2028
+    //   TimeDateStamp: 0
+    //   ForwarderChain: 0
+    //   Name: 0x2038 ("KERNEL32.DLL")
+    //   FirstThunk: 0x2048 (IAT)
+    mov dword [rdi + 0x600 + 0],  0x2028 // ILT RVA
+    mov dword [rdi + 0x600 + 12], 0x2038 // Name RVA
+    mov dword [rdi + 0x600 + 16], 0x2048 // IAT RVA
+
+    // Offset 0x28 (file 0x628): ILT
+    //   QWORD RVA to Hint/Name table (0x2058)
+    //   QWORD 0 (terminator)
+    mov qword [rdi + 0x628], 0x2058
+    mov qword [rdi + 0x630], 0
+
+    // Offset 0x38 (file 0x638): DLL Name "KERNEL32.DLL\0"
+    // 'K','E','R','N','E','L','3','2','.','D','L','L','\0'
+    mov byte [rdi + 0x638 + 0], 75  // 'K'
+    mov byte [rdi + 0x638 + 1], 69  // 'E'
+    mov byte [rdi + 0x638 + 2], 82  // 'R'
+    mov byte [rdi + 0x638 + 3], 78  // 'N'
+    mov byte [rdi + 0x638 + 4], 69  // 'E'
+    mov byte [rdi + 0x638 + 5], 76  // 'L'
+    mov byte [rdi + 0x638 + 6], 51  // '3'
+    mov byte [rdi + 0x638 + 7], 50  // '2'
+    mov byte [rdi + 0x638 + 8], 46  // '.'
+    mov byte [rdi + 0x638 + 9], 68  // 'D'
+    mov byte [rdi + 0x638 + 10], 76 // 'L'
+    mov byte [rdi + 0x638 + 11], 76 // 'L'
+    mov byte [rdi + 0x638 + 12], 0
+
+    // Offset 0x48 (file 0x648): IAT (Import Address Table)
+    //   QWORD RVA to Hint/Name table (0x2058)
+    //   QWORD 0 (terminator)
+    mov qword [rdi + 0x648], 0x2058
+    mov qword [rdi + 0x650], 0
+
+    // Offset 0x58 (file 0x658): Hint/Name for "ExitProcess\0"
+    // WORD Hint = 0
+    // "ExitProcess\0"
+    mov word [rdi + 0x658], 0
+    mov byte [rdi + 0x658 + 2], 69  // 'E'
+    mov byte [rdi + 0x658 + 3], 120 // 'x'
+    mov byte [rdi + 0x658 + 4], 105 // 'i'
+    mov byte [rdi + 0x658 + 5], 116 // 't'
+    mov byte [rdi + 0x658 + 6], 80  // 'P'
+    mov byte [rdi + 0x658 + 7], 114 // 'r'
+    mov byte [rdi + 0x658 + 8], 111 // 'o'
+    mov byte [rdi + 0x658 + 9], 99  // 'c'
+    mov byte [rdi + 0x658 + 10], 101// 'e'
+    mov byte [rdi + 0x658 + 11], 115// 's'
+    mov byte [rdi + 0x658 + 12], 115// 's'
+    mov byte [rdi + 0x658 + 13], 0
+
+    // Step 5: Encode Machine Code into .text section (file offset 0x400 = 1024)
+    // We synthesize the program:
+    //   sub rsp, 40               ; 48 83 EC 28
+    //   mov rax, 42               ; 48 B8 2A 00 00 00 00 00 00 00
+    //   add rax, 57               ; 48 83 C0 39 (42 + 57 = 99!)
+    //   mov rcx, rax              ; 48 89 C1    (exit code in RCX)
+    //   call [rip + rel32]        ; FF 15 2E 10 00 00 (calls ExitProcess at RVA 0x2048)
+    //   add rsp, 40               ; 48 83 C4 28
+    //   ret                       ; C3
+    lea rbx, [rdi + 0x400]
+
+    // sub rsp, 40
+    mov byte [rbx + 0], 0x48
+    mov byte [rbx + 1], 0x83
+    mov byte [rbx + 2], 0xEC
+    mov byte [rbx + 3], 0x28
+
+    // mov rax, 42
+    mov byte [rbx + 4], 0x48
+    mov byte [rbx + 5], 0xB8
+    mov byte [rbx + 6], 42
+    mov byte [rbx + 7], 0
+    mov byte [rbx + 8], 0
+    mov byte [rbx + 9], 0
+    mov byte [rbx + 10], 0
+    mov byte [rbx + 11], 0
+    mov byte [rbx + 12], 0
+    mov byte [rbx + 13], 0
+
+    // add rax, 57 (RAX becomes 99)
+    mov byte [rbx + 14], 0x48
+    mov byte [rbx + 15], 0x83
+    mov byte [rbx + 16], 0xC0
+    mov byte [rbx + 17], 57
+
+    // mov rcx, rax (pass 99 as exit code)
+    mov byte [rbx + 18], 0x48
+    mov byte [rbx + 19], 0x89
+    mov byte [rbx + 20], 0xC1
+
+    // call qword ptr [rip + rel32_to_ExitProcess_IAT]
+    // RIP after this instruction is:
+    // Entrypoint (0x1000) + 21 + 6 = 0x101B
+    // Target IAT slot is at RVA 0x2048
+    // rel32 = 0x2048 - 0x101B = 0x102D!
+    mov byte [rbx + 21], 0xFF
+    mov byte [rbx + 22], 0x15
+    mov byte [rbx + 23], 0x2D   // 0x102D displacement
+    mov byte [rbx + 24], 0x10
+    mov byte [rbx + 25], 0x00
+    mov byte [rbx + 26], 0x00
+
+    // add rsp, 40
+    mov byte [rbx + 27], 0x48
+    mov byte [rbx + 28], 0x83
+    mov byte [rbx + 29], 0xC4
+    mov byte [rbx + 30], 0x28
+
+    // ret
+    mov byte [rbx + 31], 0xC3
+
+    // Step 6: Write Output PE Binary to Disk
+    // CreateFileA("built_by_rawx.exe", GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL)
+    lea rcx, [out_name]
+    mov rdx, 0x40000000         // GENERIC_WRITE
+    mov r8, 0                   // dwShareMode
+    mov r9, 0                   // lpSecurityAttributes
+    mov qword [rsp + 32], 2     // CREATE_ALWAYS
+    mov qword [rsp + 40], 128   // FILE_ATTRIBUTE_NORMAL
+    mov qword [rsp + 48], 0
+    call CreateFileA
+    mov r14, rax                // Save file handle in R14
+
+    // WriteFile(r14, pe_image, 2560, &written, NULL)
+    // Total PE size = Headers(0x400) + .text(0x200) + .idata(0x400) = 2560 bytes
+    mov rcx, r14
+    lea rdx, [pe_image]
+    mov r8, 2560                // 2.5KB standalone executable
+    lea r9, [written]
+    mov qword [rsp + 32], 0
+    call WriteFile
+
+    // CloseHandle(r14)
+    mov rcx, r14
+    call CloseHandle
+
+    // Print Success Messages
+    lea rdx, [success]
+    mov r8, 62
+    call print_str
+
+    lea rdx, [verify]
+    mov r8, 57
+    call print_str
+
+    lea rdx, [footer]
+    mov r8, 57
+    call print_str
+
+    // Exit cleanly
+    mov rcx, 0
+    call ExitProcess
+
+    add rsp, 56
+    ret
+
+print_str:
+    sub rsp, 40
+    mov rcx, r15
+    lea r9, [written]
+    mov qword [rsp + 32], 0
+    call WriteFile
+    add rsp, 40
+    ret

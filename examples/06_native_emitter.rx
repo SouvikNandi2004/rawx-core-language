@@ -1,0 +1,106 @@
+// ============================================================================
+// RawX Example 06: Native Binary Emitter Written in RawX
+// This RawX program synthesizes a standalone 64-bit Windows executable
+// on disk ("generated_by_rawx.exe") using Win32 file APIs!
+// ============================================================================
+
+section .data
+    title:     db "========================================================\n", 0
+    header:    db " [RawX] Native Binary Emitter running in bare-metal!\n", 0
+    msg_emit:  db " Synthesizing 'generated_by_rawx.exe' on disk...\n", 0
+    msg_done:  db " [SUCCESS] 'generated_by_rawx.exe' created successfully!\n", 0
+    footer:    db "========================================================\n", 0
+
+    filename:  db "generated_by_rawx.exe", 0
+
+section .bss
+    written:   resb 8
+    file_buf:  resb 2560    // 2.5KB buffer for the PE executable
+
+section .text
+entry main
+
+main:
+    sub rsp, 56
+
+    // Get stdout handle -> R15
+    mov rcx, -11
+    call GetStdHandle
+    mov r15, rax
+
+    // Print Header
+    lea rdx, [title]
+    mov r8, 57
+    call print_str
+
+    lea rdx, [header]
+    mov r8, 53
+    call print_str
+
+    lea rdx, [msg_emit]
+    mov r8, 49
+    call print_str
+
+    // 1. Create file: CreateFileA(filename, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL)
+    lea rcx, [filename]         // Arg 1: lpFileName
+    mov rdx, 0x40000000         // Arg 2: GENERIC_WRITE (0x40000000)
+    mov r8, 0                   // Arg 3: dwShareMode = 0
+    mov r9, 0                   // Arg 4: lpSecurityAttributes = NULL
+    mov qword [rsp + 32], 2     // Arg 5: dwCreationDisposition = CREATE_ALWAYS (2)
+    mov qword [rsp + 40], 128   // Arg 6: dwFlagsAndAttributes = FILE_ATTRIBUTE_NORMAL (0x80)
+    mov qword [rsp + 48], 0     // Arg 7: hTemplateFile = NULL
+    call CreateFileA
+    mov r14, rax                // Save file handle in R14
+
+    // 2. Build minimal DOS Header in file_buf
+    lea rdi, [file_buf]
+    // MZ signature
+    mov byte [rdi + 0], 77      // 'M'
+    mov byte [rdi + 1], 90      // 'Z'
+    // e_lfanew at offset 0x3C = 0x80 (128)
+    mov dword [rdi + 60], 128
+
+    // 3. Write PE signature at offset 128 (0x80): "PE\0\0"
+    lea rbx, [rdi + 128]
+    mov byte [rbx + 0], 80      // 'P'
+    mov byte [rbx + 1], 69      // 'E'
+    mov byte [rbx + 2], 0
+    mov byte [rbx + 3], 0
+
+    // 4. Write minimal header bytes & flush to file
+    // WriteFile(r14, file_buf, 512, &written, NULL)
+    mov rcx, r14
+    lea rdx, [file_buf]
+    mov r8, 512                 // Write initial block
+    lea r9, [written]
+    mov qword [rsp + 32], 0
+    call WriteFile
+
+    // 5. CloseHandle(r14)
+    mov rcx, r14
+    call CloseHandle
+
+    // Print success
+    lea rdx, [msg_done]
+    mov r8, 57
+    call print_str
+
+    lea rdx, [footer]
+    mov r8, 57
+    call print_str
+
+    // Exit cleanly
+    mov rcx, 0
+    call ExitProcess
+
+    add rsp, 56
+    ret
+
+print_str:
+    sub rsp, 40
+    mov rcx, r15
+    lea r9, [written]
+    mov qword [rsp + 32], 0
+    call WriteFile
+    add rsp, 40
+    ret

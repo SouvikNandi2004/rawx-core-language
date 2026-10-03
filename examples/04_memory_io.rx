@@ -1,0 +1,99 @@
+// ============================================================================
+// RawX Example 04: Advanced Memory Addressing & In-Place String Transformation
+// Demonstrates [base + index*scale + disp], stack frame, and byte arrays
+// ============================================================================
+
+section .data
+    title: db "[RawX] In-Place Memory Array & String Reverser\n", 0
+    orig_msg: db "Original:  RawX Systems Language 2026\n", 0
+    target_str: db "RawX Systems Language 2026\n", 0
+    res_label: db "Reversed:  ", 0
+
+section .bss
+    written: resb 8
+    int_array: resb 64      // 8 x 64-bit integers
+
+section .text
+entry main
+
+main:
+    sub rsp, 40
+
+    // Get stdout handle -> R12
+    mov rcx, -11
+    call GetStdHandle
+    mov r12, rax
+
+    // 1. Print title and original string
+    lea rdx, [title]
+    mov r8, 47
+    call print_str
+
+    lea rdx, [orig_msg]
+    mov r8, 38
+    call print_str
+
+    // 2. Memory Test: Populate 64-bit integer array using [base + index*8]
+    lea rbx, [int_array]
+    mov rcx, 0              // Index 0 to 7
+pop_array_loop:
+    mov rax, rcx
+    imul rax, 100           // val = index * 100
+    add rax, 7
+    mov qword [rbx + rcx * 8], rax // Store 64-bit int at array[i]
+    inc rcx
+    cmp rcx, 8
+    jl pop_array_loop
+
+    // Read back array[4] and array[7] to verify scaled indexed addressing
+    mov r8, qword [rbx + 4 * 8]   // r8 = array[4] = 407
+    mov r9, qword [rbx + 7 * 8]   // r9 = array[7] = 707
+
+    // 3. In-place string reversal
+    // String length is 26 characters (excluding '\n')
+    lea rsi, [target_str]         // Left pointer
+    lea rdi, [target_str + 25]    // Right pointer (before \n)
+
+reverse_loop:
+    cmp rsi, rdi
+    jge done_reverse
+
+    // Swap byte [rsi] and byte [rdi] using AL and BL
+    mov al, byte [rsi]
+    mov bl, byte [rdi]
+    mov byte [rsi], bl
+    mov byte [rdi], al
+
+    inc rsi
+    dec rdi
+    jmp reverse_loop
+
+done_reverse:
+    // Print label
+    lea rdx, [res_label]
+    mov r8, 11
+    call print_str
+
+    // Print reversed string
+    lea rdx, [target_str]
+    mov r8, 27
+    call print_str
+
+    // Exit with sum of array[4] + array[7] in RAX
+    mov rax, r8
+    add rax, r9
+    mov rcx, 0
+    call ExitProcess
+
+    add rsp, 40
+    ret
+
+// Print helper
+print_str:
+    sub rsp, 40
+    mov rcx, r12
+    lea r9, [written]
+    mov qword [rsp + 32], 0
+    call WriteFile
+    add rsp, 40
+    ret

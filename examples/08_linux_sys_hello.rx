@@ -1,0 +1,55 @@
+// ============================================================================
+// RawX Example 08: Native Linux 64-bit Standalone Executable (Zero-libc)
+// Direct Linux AMD64 Kernel System Calls: sys_write (1) and sys_exit (60)
+// ============================================================================
+
+section .data
+    msg:  db "========================================================\n", 0
+    msg1: db " [RawX on Linux] 100% Native ELF64 Standalone Binary!\n", 0
+    msg2: db " Running on Linux kernel AMD64 via zero-libc syscalls.\n", 0
+    msg3: db " Registers: RAX=1 (sys_write), RDI=1 (stdout), RSI=buf, RDX=len\n", 0
+    msg4: db "========================================================\n", 0
+
+section .text
+entry _start
+
+_start:
+    // 1. Print Banner Header
+    mov rax, 1                  // sys_write
+    mov rdi, 1                  // stdout fd = 1
+    lea rsi, [msg]              // buffer pointer
+    mov rdx, 57                 // length
+    syscall
+
+    // 2. Print Title
+    mov rax, 1
+    mov rdi, 1
+    lea rsi, [msg1]
+    mov rdx, 54
+    syscall
+
+    // 3. Print Subtitle
+    mov rax, 1
+    mov rdi, 1
+    lea rsi, [msg2]
+    mov rdx, 55
+    syscall
+
+    // 4. Print Syscall Info
+    mov rax, 1
+    mov rdi, 1
+    lea rsi, [msg3]
+    mov rdx, 65
+    syscall
+
+    // 5. Print Footer
+    mov rax, 1
+    mov rdi, 1
+    lea rsi, [msg4]
+    mov rdx, 57
+    syscall
+
+    // 6. Exit cleanly via sys_exit (60)
+    mov rax, 60                 // sys_exit
+    mov rdi, 0                  // exit status = 0
+    syscall

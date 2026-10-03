@@ -1,0 +1,67 @@
+// ============================================================================
+// RawX Example 12: SIMD & SSE 128-bit Vector Processing
+// Direct operations on XMM0 through XMM15 vector registers
+// Parallel 4x 32-bit floating point math in a single clock cycle!
+// ============================================================================
+
+section .data
+    msg: db "========================================================\n"
+         db " [RawX] SIMD 128-bit Vector Engine (SSE/AVX)\n"
+         db " Operating on XMM0 through XMM15 vector registers...\n"
+         db " Parallel single-instruction multi-data pipeline!\n"
+         db "========================================================\n", 0
+
+    // 16-byte aligned vector arrays (4x 32-bit floats each)
+    align 16
+    vec_a: dd 10, 20, 30, 40
+    align 16
+    vec_b: dd 2, 2, 2, 2
+
+section .bss
+    written: resb 8
+    align 16
+    vec_res: resd 4
+
+section .text
+entry main
+
+main:
+    sub rsp, 40
+
+    // Print banner
+    mov rcx, -11
+    call GetStdHandle
+    mov rbx, rax
+
+    mov rcx, rbx
+    lea rdx, [msg]
+    mov r8, 226
+    lea r9, [written]
+    mov qword [rsp + 32], 0
+    call WriteFile
+
+    // 1. Zero out vector registers using XORPS
+    xorps xmm0, xmm0
+    xorps xmm1, xmm1
+    xorps xmm2, xmm2
+
+    // 2. Load 128-bit vectors from memory into XMM registers
+    movups xmm0, [vec_a]        // xmm0 = [10, 20, 30, 40]
+    movups xmm1, [vec_b]        // xmm1 = [2, 2, 2, 2]
+
+    // 3. Parallel Vector Addition (4 lanes at once!)
+    addps xmm0, xmm1            // xmm0 = [12, 22, 32, 42]
+
+    // 4. Parallel Vector Multiplication across extended XMM registers
+    movaps xmm8, xmm0           // transfer to high vector register XMM8
+    mulps xmm8, xmm1            // xmm8 = [24, 44, 64, 84]
+
+    // 5. Store result back to memory
+    movups [vec_res], xmm8
+
+    // Exit cleanly
+    mov rcx, 0
+    call ExitProcess
+
+    add rsp, 40
+    ret

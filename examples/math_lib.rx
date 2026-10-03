@@ -1,0 +1,29 @@
+// ============================================================================
+// RawX Modular Math Library (math_lib.rx)
+// Demonstrates reusable subroutine library included via %include
+// ============================================================================
+
+%define MATH_LIB_VERSION 1
+
+// Subroutine: square_rax
+// Input : RAX = n
+// Output: RAX = n * n
+square_rax:
+    imul rax, rax
+    ret
+
+// Subroutine: cube_rax
+// Input : RAX = n
+// Output: RAX = n * n * n
+cube_rax:
+    mov r11, rax                // save n
+    imul rax, rax               // n * n
+    imul rax, r11               // (n * n) * n
+    ret
+
+// Subroutine: add_r8_to_rax
+// Input : RAX, R8
+// Output: RAX = RAX + R8
+add_r8_to_rax:
+    add rax, r8
+    ret

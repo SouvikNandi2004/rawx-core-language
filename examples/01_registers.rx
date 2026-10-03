@@ -1,0 +1,51 @@
+// ============================================================================
+// RawX Example 01: Full Architectural Register Manipulation
+// Direct operations on RAX, RBX, RCX, RDX, RSI, RDI, RBP, RSP, R8 through R15
+// ============================================================================
+
+section .text
+entry main
+
+main:
+    // 1. Initialize Lower 8 Registers
+    mov rax, 100            // Accumulator
+    mov rbx, 200            // Base
+    mov rcx, 10             // Counter
+    mov rdx, 50             // Data / I/O
+    mov rsi, 0x1111         // Source Index
+    mov rdi, 0x2222         // Destination Index
+    
+    // 2. Initialize Extended Registers R8 through R15
+    mov r8,  0x80           // Extended reg 8
+    mov r9,  0x90           // Extended reg 9
+    mov r10, 0x1000         // Extended reg 10 (Scratch)
+    mov r11, 0x2000         // Extended reg 11 (Scratch)
+    mov r12, 10             // Extended reg 12
+    mov r13, 20             // Extended reg 13
+    mov r14, 30             // Extended reg 14
+    mov r15, 40             // Extended reg 15
+
+    // 3. Register-to-Register Arithmetic
+    add rax, rbx            // rax = 100 + 200 = 300
+    sub rax, rdx            // rax = 300 - 50 = 250
+    imul rax, rcx           // rax = 250 * 10 = 2500
+
+    // 4. Extended Register Arithmetic (R8-R15)
+    add r8, r9              // r8 = 0x80 + 0x90 = 0x110
+    add r14, r15            // r14 = 30 + 40 = 70
+    imul r12, r13           // r12 = 10 * 20 = 200
+
+    // 5. Cross-Bank Operations (Lower to Extended and vice-versa)
+    add rax, r8             // rax += r8 (0x110 = 272 -> 2500 + 272 = 2772)
+    xor r10, r11            // r10 = 0x1000 ^ 0x2000 = 0x3000
+
+    // 6. Bitwise Shifts
+    shl r9, 2               // r9 = 0x90 << 2 = 0x240
+    shr rdi, 1              // rdi = 0x2222 >> 1 = 0x1111
+
+    // 7. Stack Push / Pop across extended registers
+    push r14                // Push 70 to stack
+    pop r15                 // Pop into R15 -> r15 is now 70
+
+    // Result in RAX
+    ret

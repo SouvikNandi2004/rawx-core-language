@@ -1,0 +1,56 @@
+// ============================================================================
+// RawX Example 09: Native macOS 64-bit Standalone Executable (Zero-libc)
+// Direct Darwin / macOS x86-64 BSD System Calls:
+// sys_write (0x2000004) and sys_exit (0x2000001)
+// ============================================================================
+
+section .data
+    msg:  db "========================================================\n", 0
+    msg1: db " [RawX on macOS] 100% Native Mach-O 64 Standalone!\n", 0
+    msg2: db " Running on Darwin kernel via direct BSD 64-bit syscalls.\n", 0
+    msg3: db " Syscall Numbers: 0x2000004 (sys_write), 0x2000001 (sys_exit)\n", 0
+    msg4: db "========================================================\n", 0
+
+section .text
+entry main
+
+main:
+    // 1. Print Banner Header
+    mov rax, 0x2000004          // macOS sys_write
+    mov rdi, 1                  // stdout fd = 1
+    lea rsi, [msg]              // buffer pointer
+    mov rdx, 57                 // length
+    syscall
+
+    // 2. Print Title
+    mov rax, 0x2000004
+    mov rdi, 1
+    lea rsi, [msg1]
+    mov rdx, 52
+    syscall
+
+    // 3. Print Subtitle
+    mov rax, 0x2000004
+    mov rdi, 1
+    lea rsi, [msg2]
+    mov rdx, 58
+    syscall
+
+    // 4. Print Syscall Info
+    mov rax, 0x2000004
+    mov rdi, 1
+    lea rsi, [msg3]
+    mov rdx, 63
+    syscall
+
+    // 5. Print Footer
+    mov rax, 0x2000004
+    mov rdi, 1
+    lea rsi, [msg4]
+    mov rdx, 57
+    syscall
+
+    // 6. Exit cleanly via sys_exit (0x2000001)
+    mov rax, 0x2000001          // macOS sys_exit
+    mov rdi, 0                  // exit status = 0
+    syscall

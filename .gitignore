@@ -1,0 +1,19 @@
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# Build artifacts & temporary files
+*.pdb
+*.obj
+*.tmp
+*.log
+.vs/
+.vscode/
+.idea/
+
+# Test output binaries (optional, keep release binaries if desired)
+generated_by_rawx.exe
+output.exe

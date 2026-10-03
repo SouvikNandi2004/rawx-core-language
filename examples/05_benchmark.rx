@@ -1,0 +1,124 @@
+// ============================================================================
+// RawX Example 05: Raw Hardware Performance Benchmark
+// Executes 500,000,000 register operations directly on the CPU
+// Measures execution time in milliseconds via GetTickCount64
+// ============================================================================
+
+section .data
+    title:   db "========================================================\n", 0
+    header:  db " [RawX] Pure Bare-Metal Hardware Benchmark\n", 0
+    running: db " Running 500,000,000 register ALU operations on CPU...\n", 0
+    res1:    db " Completed in: ", 0
+    res2:    db " ms\n", 0
+    res3:    db " Status: Ultra-fast native x86-64 execution confirmed!\n", 0
+    footer:  db "========================================================\n", 0
+
+section .bss
+    written: resb 8
+    num_buf: resb 32
+
+section .text
+entry main
+
+main:
+    sub rsp, 40
+
+    // Get stdout handle -> R15
+    mov rcx, -11
+    call GetStdHandle
+    mov r15, rax
+
+    // Print Header
+    lea rdx, [title]
+    mov r8, 57
+    call print_str
+
+    lea rdx, [header]
+    mov r8, 44
+    call print_str
+
+    lea rdx, [running]
+    mov r8, 56
+    call print_str
+
+    // 1. Start Timing (GetTickCount64 returns ms in RAX)
+    call GetTickCount64
+    mov r12, rax            // R12 = Start Time
+
+    // 2. Performance Loop: 500,000,000 iterations
+    mov rcx, 500000000      // 500 Million iterations
+    mov rax, 1
+    mov rbx, 3
+    mov r8,  7
+    mov r9,  11
+
+bench_loop:
+    add rax, rbx
+    xor r8,  r9
+    sub rax, 1
+    dec rcx
+    jnz bench_loop
+
+    // 3. Stop Timing
+    call GetTickCount64     // RAX = End Time
+    sub rax, r12            // RAX = Elapsed Milliseconds
+    mov r13, rax            // Save elapsed ms in R13
+
+    // 4. Print Results
+    lea rdx, [res1]
+    mov r8, 15
+    call print_str
+
+    mov rax, r13            // Pass elapsed ms to print_num
+    call print_num
+
+    lea rdx, [res2]
+    mov r8, 4
+    call print_str
+
+    lea rdx, [res3]
+    mov r8, 55
+    call print_str
+
+    lea rdx, [footer]
+    mov r8, 57
+    call print_str
+
+    // Exit cleanly
+    mov rcx, 0
+    call ExitProcess
+
+    add rsp, 40
+    ret
+
+// Helper: print string
+print_str:
+    sub rsp, 40
+    mov rcx, r15
+    lea r9, [written]
+    mov qword [rsp + 32], 0
+    call WriteFile
+    add rsp, 40
+    ret
+
+// Helper: print number in RAX
+print_num:
+    sub rsp, 40
+    lea rdi, [num_buf + 30]
+    mov r8, 0               // Length
+
+    mov rbx, 10
+conv_loop:
+    dec rdi
+    inc r8
+    mov rdx, 0
+    idiv rbx
+    add dl, 48
+    mov byte [rdi], dl
+    cmp rax, 0
+    jg conv_loop
+
+    mov rdx, rdi
+    call print_str
+    add rsp, 40
+    ret
