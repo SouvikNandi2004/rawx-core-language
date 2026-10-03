@@ -18,6 +18,16 @@ const RAWX_GITHUB_RAW_URL = 'https://raw.githubusercontent.com/SouvikNandi2004/r
  * @returns {Promise<typeof import('./rawx')>} The RawX module
  */
 async function loadRawX(rawUrl = RAWX_GITHUB_RAW_URL) {
+    // If local repository copy exists and no explicit remote URL override, use local engine
+    if (rawUrl === RAWX_GITHUB_RAW_URL && fs.existsSync(path.join(__dirname, 'rawx.js'))) {
+        const localCode = fs.readFileSync(path.join(__dirname, 'rawx.js'), 'utf8').replace(/^#![^\r\n]*/, '');
+        const mod = { exports: {} };
+        new Function('module', 'exports', 'require', '__dirname', '__filename', localCode)(
+            mod, mod.exports, require, __dirname, path.join(__dirname, 'rawx.js')
+        );
+        return mod.exports;
+    }
+
     const cacheDir = path.join(process.cwd(), '.rawx_cache');
     if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
     const cacheFile = path.join(cacheDir, 'rawx_engine.js');
@@ -41,8 +51,6 @@ async function loadRawX(rawUrl = RAWX_GITHUB_RAW_URL) {
     if (!fetched) {
         if (fs.existsSync(cacheFile)) {
             code = fs.readFileSync(cacheFile, 'utf8');
-        } else if (fs.existsSync(path.join(__dirname, 'rawx.js'))) {
-            code = fs.readFileSync(path.join(__dirname, 'rawx.js'), 'utf8');
         } else {
             throw new Error(`Failed to load RawX from ${rawUrl} and no offline cache available.`);
         }
@@ -71,6 +79,7 @@ if (require.main === module) {
             console.log('   -t, --target <os>  Target OS: windows, linux, macos');
             console.log('   -f, --format <fmt> Format: pe, elf, macho, bin');
             console.log('   -r, --run          Immediately execute compiled binary');
+            console.log('   -d, --disasm       Show disassembly & emitted hex opcodes');
             console.log('========================================================');
             process.exit(0);
         }
@@ -82,18 +91,32 @@ if (require.main === module) {
         let target = process.platform === 'win32' ? 'windows' : (process.platform === 'darwin' ? 'macos' : 'linux');
         let format = null;
         let doRun = false;
+        let doDisasm = false;
 
         for (let i = 0; i < args.length; i++) {
             if (args[i] === '-o' && i + 1 < args.length) out = args[++i];
             else if ((args[i] === '-t' || args[i] === '--target') && i + 1 < args.length) target = args[++i];
             else if ((args[i] === '-f' || args[i] === '--format') && i + 1 < args.length) format = args[++i];
             else if (args[i] === '-r' || args[i] === '--run') doRun = true;
+            else if (args[i] === '-d' || args[i] === '--disasm') doDisasm = true;
             else if (!args[i].startsWith('-') && !src) src = args[i];
         }
 
         if (!src) {
             console.error('[Error] No source file or URL specified.');
             process.exit(1);
+        }
+
+        if (doDisasm) {
+            let srcText = '';
+            if (/^https?:\/\//i.test(src)) {
+                const resp = await fetch(src);
+                srcText = await resp.text();
+            } else {
+                srcText = fs.readFileSync(src, 'utf8');
+            }
+            const dump = await RawX.disassemble(srcText, { target });
+            console.log(dump);
         }
 
         const binPath = await RawX.compileFile(src, { target, format, outPath: out });

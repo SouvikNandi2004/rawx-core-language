@@ -13,5 +13,6 @@ export const Lexer = rawxCommonJS.Lexer;
 export const Parser = rawxCommonJS.Parser;
 export const Encoder = rawxCommonJS.Encoder;
 export const Preprocessor = rawxCommonJS.Preprocessor;
+export const Disassembler = rawxCommonJS.Disassembler;
 
 export default RawX;

@@ -803,6 +803,30 @@ namespace RawX
                 }
             }
 
+            // Zero / Sign Extension: MOVZX / MOVSX
+            if ((m == "movzx" || m == "movsx") && ops.Count == 2 && ops[0].Type == OperandType.Register)
+            {
+                int dst = ops[0].RegIndex;
+                Operand op2 = ops[1];
+                if (op2.Type == OperandType.Register)
+                {
+                    int src = op2.RegIndex;
+                    int srcSz = op2.RegSize;
+                    byte baseOp = (m == "movzx") ? (byte)(srcSz == 8 ? 0xB6 : 0xB7) : (byte)(srcSz == 8 ? 0xBE : 0xBF);
+                    buf.Add(MakeRex(1, dst >= 8 ? 1 : 0, 0, src >= 8 ? 1 : 0));
+                    buf.AddRange(new byte[] { 0x0F, baseOp });
+                    buf.Add(MakeModRm(3, dst & 7, src & 7));
+                    return;
+                }
+                else if (op2.Type == OperandType.Memory)
+                {
+                    int memSz = op2.Mem.Size != 0 ? op2.Mem.Size : 8;
+                    byte baseOp = (m == "movzx") ? (byte)(memSz == 8 ? 0xB6 : 0xB7) : (byte)(memSz == 8 ? 0xBE : 0xBF);
+                    EncodeMemAccess(buf, prog, baseOp, dst, op2.Mem, true, 0, true);
+                    return;
+                }
+            }
+
             // SIMD / SSE Instructions (XMM)
             // (mandatoryPrefix, opcodeByte)
             Dictionary<string, Tuple<byte, byte>> sseOpcodes = new Dictionary<string, Tuple<byte, byte>>(StringComparer.OrdinalIgnoreCase)

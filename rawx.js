@@ -47,6 +47,25 @@ const REGISTERS = new Set([
     'xmm8', 'xmm9', 'xmm10', 'xmm11', 'xmm12', 'xmm13', 'xmm14', 'xmm15'
 ]);
 
+// High-speed ASCII lookup tables for zero-allocation tokenization
+const IS_IDENT = new Uint8Array(256);
+for (let i = 65; i <= 90; i++) IS_IDENT[i] = 1;  // A-Z
+for (let i = 97; i <= 122; i++) IS_IDENT[i] = 1; // a-z
+for (let i = 48; i <= 57; i++) IS_IDENT[i] = 1;  // 0-9
+IS_IDENT[95] = 1; // _
+IS_IDENT[37] = 1; // %
+IS_IDENT[36] = 1; // $
+IS_IDENT[64] = 1; // @
+IS_IDENT[46] = 1; // .
+
+const IS_DIGIT = new Uint8Array(256);
+for (let i = 48; i <= 57; i++) IS_DIGIT[i] = 1; // 0-9
+
+const IS_HEX_DIGIT = new Uint8Array(256);
+for (let i = 48; i <= 57; i++) IS_HEX_DIGIT[i] = 1;
+for (let i = 65; i <= 70; i++) IS_HEX_DIGIT[i] = 1; // A-F
+for (let i = 97; i <= 102; i++) IS_HEX_DIGIT[i] = 1; // a-f
+
 class Lexer {
     constructor(src) {
         this.src = src || '';
@@ -74,16 +93,19 @@ class Lexer {
 
     tokenize() {
         const tokens = [];
-        while (this.pos < this.src.length) {
-            const ch = this.peek();
+        const len = this.src.length;
 
-            if (ch === ' ' || ch === '\t' || ch === '\r') {
+        while (this.pos < len) {
+            const ch = this.src[this.pos];
+            const code = ch.charCodeAt(0);
+
+            if (code === 32 || code === 9 || code === 13) { // ' ', '\t', '\r'
                 this.advance();
                 continue;
             }
 
             if (ch === ';' || (ch === '/' && this.peek(1) === '/')) {
-                while (this.pos < this.src.length && this.peek() !== '\n') {
+                while (this.pos < len && this.src.charCodeAt(this.pos) !== 10) {
                     this.advance();
                 }
                 continue;
@@ -91,14 +113,14 @@ class Lexer {
 
             if (ch === '/' && this.peek(1) === '*') {
                 this.advance(); this.advance();
-                while (this.pos < this.src.length && !(this.peek() === '*' && this.peek(1) === '/')) {
+                while (this.pos < len && !(this.src[this.pos] === '*' && this.peek(1) === '/')) {
                     this.advance();
                 }
-                if (this.pos < this.src.length) { this.advance(); this.advance(); }
+                if (this.pos < len) { this.advance(); this.advance(); }
                 continue;
             }
 
-            if (ch === '\n') {
+            if (code === 10) { // '\n'
                 tokens.push({ type: TokenType.Newline, value: '\n', line: this.line, col: this.col });
                 this.advance();
                 continue;
@@ -107,17 +129,17 @@ class Lexer {
             const tokLine = this.line;
             const tokCol = this.col;
 
-            if (ch === ',') { this.advance(); tokens.push({ type: TokenType.Comma, value: ',', line: tokLine, col: tokCol }); continue; }
-            if (ch === ':') { this.advance(); tokens.push({ type: TokenType.Colon, value: ':', line: tokLine, col: tokCol }); continue; }
-            if (ch === '[') { this.advance(); tokens.push({ type: TokenType.LBracket, value: '[', line: tokLine, col: tokCol }); continue; }
-            if (ch === ']') { this.advance(); tokens.push({ type: TokenType.RBracket, value: ']', line: tokLine, col: tokCol }); continue; }
-            if (ch === '+') { this.advance(); tokens.push({ type: TokenType.Plus, value: '+', line: tokLine, col: tokCol }); continue; }
-            if (ch === '*') { this.advance(); tokens.push({ type: TokenType.Star, value: '*', line: tokLine, col: tokCol }); continue; }
-            if (ch === '.') { this.advance(); tokens.push({ type: TokenType.Dot, value: '.', line: tokLine, col: tokCol }); continue; }
+            if (code === 44) { this.advance(); tokens.push({ type: TokenType.Comma, value: ',', line: tokLine, col: tokCol }); continue; }
+            if (code === 58) { this.advance(); tokens.push({ type: TokenType.Colon, value: ':', line: tokLine, col: tokCol }); continue; }
+            if (code === 91) { this.advance(); tokens.push({ type: TokenType.LBracket, value: '[', line: tokLine, col: tokCol }); continue; }
+            if (code === 93) { this.advance(); tokens.push({ type: TokenType.RBracket, value: ']', line: tokLine, col: tokCol }); continue; }
+            if (code === 43) { this.advance(); tokens.push({ type: TokenType.Plus, value: '+', line: tokLine, col: tokCol }); continue; }
+            if (code === 42) { this.advance(); tokens.push({ type: TokenType.Star, value: '*', line: tokLine, col: tokCol }); continue; }
+            if (code === 46) { this.advance(); tokens.push({ type: TokenType.Dot, value: '.', line: tokLine, col: tokCol }); continue; }
 
-            if (ch === '-') {
+            if (code === 45) { // '-'
                 this.advance();
-                if (/[0-9]/.test(this.peek())) {
+                if (this.pos < len && IS_DIGIT[this.src.charCodeAt(this.pos)]) {
                     tokens.push(this.readNumber(tokLine, tokCol, true));
                 } else {
                     tokens.push({ type: TokenType.Minus, value: '-', line: tokLine, col: tokCol });
@@ -125,12 +147,12 @@ class Lexer {
                 continue;
             }
 
-            if (ch === '"' || ch === "'") {
+            if (code === 34 || code === 39) { // '"' or "'"
                 const quote = this.advance();
                 let str = '';
-                while (this.pos < this.src.length && this.peek() !== quote) {
+                while (this.pos < len && this.src[this.pos] !== quote) {
                     const c = this.advance();
-                    if (c === '\\' && this.pos < this.src.length) {
+                    if (c === '\\' && this.pos < len) {
                         const esc = this.advance();
                         if (esc === 'n') str += '\n';
                         else if (esc === 'r') str += '\r';
@@ -144,21 +166,23 @@ class Lexer {
                         str += c;
                     }
                 }
-                if (this.pos < this.src.length && this.peek() === quote) this.advance();
+                if (this.pos < len && this.src[this.pos] === quote) this.advance();
                 tokens.push({ type: TokenType.String, value: str, line: tokLine, col: tokCol });
                 continue;
             }
 
-            if (/[0-9]/.test(ch)) {
+            if (IS_DIGIT[code]) {
                 tokens.push(this.readNumber(tokLine, tokCol, false));
                 continue;
             }
 
-            if (/[a-zA-Z_%$@]/.test(ch)) {
-                let id = '';
-                while (this.pos < this.src.length && /[a-zA-Z0-9_%$@.]/.test(this.peek())) {
-                    id += this.advance();
+            if (IS_IDENT[code]) {
+                const start = this.pos;
+                while (this.pos < len && IS_IDENT[this.src.charCodeAt(this.pos)]) {
+                    this.pos++;
+                    this.col++;
                 }
+                const id = this.src.slice(start, this.pos);
                 const lower = id.toLowerCase();
                 if (REGISTERS.has(lower)) {
                     tokens.push({ type: TokenType.Register, value: lower, line: tokLine, col: tokCol });
@@ -177,27 +201,32 @@ class Lexer {
 
     readNumber(line, col, isNeg) {
         let numStr = isNeg ? '-' : '';
-        if (this.peek() === '0' && (this.peek(1) === 'x' || this.peek(1) === 'X')) {
+        const len = this.src.length;
+
+        if (this.src[this.pos] === '0' && (this.peek(1) === 'x' || this.peek(1) === 'X')) {
             this.advance(); this.advance();
-            let hex = '';
-            while (this.pos < this.src.length && /[0-9a-fA-F]/.test(this.peek())) {
-                hex += this.advance();
+            const start = this.pos;
+            while (this.pos < len && IS_HEX_DIGIT[this.src.charCodeAt(this.pos)]) {
+                this.pos++; this.col++;
             }
+            const hex = this.src.slice(start, this.pos);
             const val = BigInt('0x' + (hex || '0')) * (isNeg ? -1n : 1n);
             return { type: TokenType.Number, value: hex, numValue: val, line, col };
-        } else if (this.peek() === '0' && (this.peek(1) === 'b' || this.peek(1) === 'B')) {
+        } else if (this.src[this.pos] === '0' && (this.peek(1) === 'b' || this.peek(1) === 'B')) {
             this.advance(); this.advance();
-            let bin = '';
-            while (this.pos < this.src.length && /[01]/.test(this.peek())) {
-                bin += this.advance();
+            const start = this.pos;
+            while (this.pos < len && (this.src.charCodeAt(this.pos) === 48 || this.src.charCodeAt(this.pos) === 49)) {
+                this.pos++; this.col++;
             }
+            const bin = this.src.slice(start, this.pos);
             const val = BigInt('0b' + (bin || '0')) * (isNeg ? -1n : 1n);
             return { type: TokenType.Number, value: bin, numValue: val, line, col };
         } else {
-            let digits = '';
-            while (this.pos < this.src.length && /[0-9]/.test(this.peek())) {
-                digits += this.advance();
+            const start = this.pos;
+            while (this.pos < len && IS_DIGIT[this.src.charCodeAt(this.pos)]) {
+                this.pos++; this.col++;
             }
+            const digits = this.src.slice(start, this.pos);
             const val = BigInt(numStr + digits);
             return { type: TokenType.Number, value: digits, numValue: val, line, col };
         }
@@ -1038,11 +1067,67 @@ class Encoder {
             }
         }
 
-        if (m === 'xchg' && ops.length === 2 && ops[0].type === 'Register' && ops[1].type === 'Register') {
-            const r1 = ops[0].regIndex;
-            const r2 = ops[1].regIndex;
-            buf.push(this.makeRex(1, r1 >= 8 ? 1 : 0, 0, r2 >= 8 ? 1 : 0), 0x87, this.makeModRm(3, r1 & 7, r2 & 7));
-            return;
+        if (m === 'xchg' && ops.length === 2) {
+            if (ops[0].type === 'Register' && ops[1].type === 'Register') {
+                const r1 = ops[0].regIndex;
+                const r2 = ops[1].regIndex;
+                buf.push(this.makeRex(1, r1 >= 8 ? 1 : 0, 0, r2 >= 8 ? 1 : 0), 0x87, this.makeModRm(3, r1 & 7, r2 & 7));
+                return;
+            } else if (ops[0].type === 'Memory' && ops[1].type === 'Register') {
+                this.encodeMemAccess(buf, prog, 0x87, ops[1].regIndex, ops[0].mem, true);
+                return;
+            } else if (ops[0].type === 'Register' && ops[1].type === 'Memory') {
+                this.encodeMemAccess(buf, prog, 0x87, ops[0].regIndex, ops[1].mem, true);
+                return;
+            }
+        }
+
+        // CMPXCHG [mem], reg or CMPXCHG reg, reg
+        if (m === 'cmpxchg' && ops.length === 2) {
+            if (ops[0].type === 'Memory' && ops[1].type === 'Register') {
+                this.encodeMemAccess(buf, prog, 0xB1, ops[1].regIndex, ops[0].mem, true, 0, true);
+                return;
+            } else if (ops[0].type === 'Register' && ops[1].type === 'Register') {
+                const dst = ops[0].regIndex;
+                const src = ops[1].regIndex;
+                buf.push(this.makeRex(1, src >= 8 ? 1 : 0, 0, dst >= 8 ? 1 : 0), 0x0F, 0xB1, this.makeModRm(3, src & 7, dst & 7));
+                return;
+            }
+        }
+
+        // Bit Scan: BSF / BSR / POPCNT
+        if ((m === 'bsf' || m === 'bsr' || m === 'popcnt') && ops.length === 2 && ops[0].type === 'Register') {
+            const dst = ops[0].regIndex;
+            const code = (m === 'bsf') ? 0xBC : ((m === 'bsr') ? 0xBD : 0xB8);
+            const mandatory = (m === 'popcnt') ? 0xF3 : 0;
+
+            if (ops[1].type === 'Register') {
+                if (mandatory) buf.push(mandatory);
+                const src = ops[1].regIndex;
+                buf.push(this.makeRex(1, dst >= 8 ? 1 : 0, 0, src >= 8 ? 1 : 0), 0x0F, code, this.makeModRm(3, dst & 7, src & 7));
+                return;
+            } else if (ops[1].type === 'Memory') {
+                this.encodeMemAccess(buf, prog, code, dst, ops[1].mem, true, mandatory, true);
+                return;
+            }
+        }
+
+        // Zero / Sign Extension: MOVZX / MOVSX
+        if ((m === 'movzx' || m === 'movsx') && ops.length === 2 && ops[0].type === 'Register') {
+            const dst = ops[0].regIndex;
+            const op2 = ops[1];
+            if (op2.type === 'Register') {
+                const src = op2.regIndex;
+                const srcSz = op2.regSize;
+                const baseOp = (m === 'movzx') ? (srcSz === 8 ? 0xB6 : 0xB7) : (srcSz === 8 ? 0xBE : 0xBF);
+                buf.push(this.makeRex(1, dst >= 8 ? 1 : 0, 0, src >= 8 ? 1 : 0), 0x0F, baseOp, this.makeModRm(3, dst & 7, src & 7));
+                return;
+            } else if (op2.type === 'Memory') {
+                const memSz = op2.mem.size || 8;
+                const baseOp = (m === 'movzx') ? (memSz === 8 ? 0xB6 : 0xB7) : (memSz === 8 ? 0xBE : 0xBF);
+                this.encodeMemAccess(buf, prog, baseOp, dst, op2.mem, true, 0, true);
+                return;
+            }
         }
 
         const setccMap = { sete: 0x94, setz: 0x94, setne: 0x95, setnz: 0x95, setl: 0x9C, setle: 0x9E, setg: 0x9F, setge: 0x9D, setb: 0x92, seta: 0x97 };
@@ -1069,8 +1154,10 @@ class Encoder {
         // SIMD SSE
         const sseOpcodes = {
             movups: [0x00, 0x10], movaps: [0x00, 0x28],
-            xorps:  [0x00, 0x57], addps:  [0x00, 0x58],
-            subps:  [0x00, 0x5C], mulps:  [0x00, 0x59], divps: [0x00, 0x5E],
+            xorps:  [0x00, 0x57], andps:  [0x00, 0x54], orps:   [0x00, 0x56],
+            addps:  [0x00, 0x58], subps:  [0x00, 0x5C], mulps:  [0x00, 0x59], divps: [0x00, 0x5E],
+            sqrtps: [0x00, 0x51], rsqrtps: [0x00, 0x52], rcpps: [0x00, 0x53],
+            maxps:  [0x00, 0x5F], minps:  [0x00, 0x5D],
             pxor:   [0x66, 0xEF], movdqa: [0x66, 0x6F], movdqu: [0xF3, 0x6F]
         };
 
@@ -1663,10 +1750,82 @@ const RawX = {
             stdout: res.stdout || '',
             stderr: res.stderr || ''
         };
+    },
+
+    async disassemble(source, options = {}) {
+        const target = options.target || (process.platform === 'win32' ? 'windows' : (process.platform === 'darwin' ? 'macos' : 'linux'));
+        const prep = new Preprocessor(options.rootDir || process.cwd(), target);
+        const processed = await prep.process(source, options.filePath || null);
+        const lexer = new Lexer(processed);
+        const tokens = lexer.tokenize();
+        const parser = new Parser(tokens);
+        const ast = parser.parse();
+        const encoder = new Encoder(target);
+        const prog = encoder.encode(ast);
+        return Disassembler.dump(prog);
     }
 };
 
-// --- 8. CLI Runner ---
+// --- 8. Disassembler ---
+class Disassembler {
+    static dump(prog) {
+        const out = [];
+        out.push('========================================================');
+        out.push(' [RawX Disassembly Inspector] 64-bit AMD64 Machine Code');
+        out.push('========================================================');
+
+        const textSyms = new Map();
+        for (const [k, v] of Object.entries(prog.symbols || {})) {
+            if (v.section === '.text') textSyms.set(v.offset, k);
+        }
+
+        out.push(`--- .TEXT Section (${prog.textBytes.length} bytes) ---`);
+        const code = prog.textBytes;
+        for (let i = 0; i < code.length; i += 16) {
+            if (textSyms.has(i)) {
+                out.push(`<${textSyms.get(i)}>:`);
+            }
+            const count = Math.min(16, code.length - i);
+            let hex = '';
+            let ascii = '';
+            for (let j = 0; j < count; j++) {
+                const b = code[i + j];
+                hex += (b < 16 ? '0' : '') + b.toString(16).toUpperCase() + ' ';
+                ascii += (b >= 32 && b <= 126) ? String.fromCharCode(b) : '.';
+            }
+            const offsetHex = i.toString(16).toUpperCase().padStart(4, '0');
+            out.push(`  0x${offsetHex}:  ${hex.padEnd(48, ' ')}  |${ascii}|`);
+        }
+
+        if (prog.dataBytes && prog.dataBytes.length > 0) {
+            out.push('');
+            out.push(`--- .DATA Section (${prog.dataBytes.length} bytes) ---`);
+            const data = prog.dataBytes;
+            for (let i = 0; i < data.length; i += 16) {
+                const count = Math.min(16, data.length - i);
+                let hex = '';
+                let ascii = '';
+                for (let j = 0; j < count; j++) {
+                    const b = data[i + j];
+                    hex += (b < 16 ? '0' : '') + b.toString(16).toUpperCase() + ' ';
+                    ascii += (b >= 32 && b <= 126) ? String.fromCharCode(b) : '.';
+                }
+                const offsetHex = i.toString(16).toUpperCase().padStart(4, '0');
+                out.push(`  0x${offsetHex}:  ${hex.padEnd(48, ' ')}  |${ascii}|`);
+            }
+        }
+
+        if (prog.bssSize > 0) {
+            out.push('');
+            out.push(`--- .BSS Section (Reserved Uninitialized: ${prog.bssSize} bytes) ---`);
+        }
+
+        out.push('========================================================');
+        return out.join('\n');
+    }
+}
+
+// --- 9. CLI Runner ---
 if (require.main === module) {
     (async () => {
         const args = process.argv.slice(2);
@@ -1680,9 +1839,11 @@ if (require.main === module) {
             console.log(`   -t, --target <os>  Target OS: windows, linux, macos`);
             console.log(`   -f, --format <fmt> Format: pe, elf, macho, bin`);
             console.log(`   -r, --run          Immediately execute compiled binary`);
+            console.log(`   -d, --disasm       Show disassembly & emitted hex opcodes`);
             console.log(``);
             console.log(` Examples:`);
             console.log(`   node rawx.js examples/02_hello.rx -r`);
+            console.log(`   node rawx.js examples/11_hardware_intrinsics.rx -d`);
             console.log(`   node rawx.js https://raw.githubusercontent.com/.../02_hello.rx -r`);
             console.log(`========================================================`);
             process.exit(0);
@@ -1693,12 +1854,14 @@ if (require.main === module) {
         let target = process.platform === 'win32' ? 'windows' : (process.platform === 'darwin' ? 'macos' : 'linux');
         let format = null;
         let doRun = false;
+        let doDisasm = false;
 
         for (let i = 0; i < args.length; i++) {
             if (args[i] === '-o' && i + 1 < args.length) out = args[++i];
             else if ((args[i] === '-t' || args[i] === '--target') && i + 1 < args.length) target = args[++i];
             else if ((args[i] === '-f' || args[i] === '--format') && i + 1 < args.length) format = args[++i];
             else if (args[i] === '-r' || args[i] === '--run') doRun = true;
+            else if (args[i] === '-d' || args[i] === '--disasm') doDisasm = true;
             else if (!args[i].startsWith('-') && !src) src = args[i];
         }
 
@@ -1715,6 +1878,18 @@ if (require.main === module) {
             console.log(`[*] Compiling '${src}' with RawX JavaScript Engine...`);
         }
 
+        if (doDisasm) {
+            let srcText = '';
+            if (isUrl) {
+                const resp = await fetch(src);
+                srcText = await resp.text();
+            } else {
+                srcText = fs.readFileSync(src, 'utf8');
+            }
+            const dump = await RawX.disassemble(srcText, { target });
+            console.log(dump);
+        }
+
         const binPath = await RawX.compileFile(src, { target, format, outPath: out });
         console.log(`[+] Standalone binary synthesized: ${binPath} (${Date.now() - t0}ms)`);
 
@@ -1729,4 +1904,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { RawX, Lexer, Parser, Encoder, Preprocessor };
+module.exports = { RawX, Lexer, Parser, Encoder, Preprocessor, Disassembler };
