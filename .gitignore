@@ -5,6 +5,11 @@ Desktop.ini
 $RECYCLE.BIN/
 .DS_Store
 
+# Ignore all generated/compiled binaries in bin directory
+bin/
+*.elf
+*.macho
+
 # Build artifacts & temporary files
 *.pdb
 *.obj
@@ -14,6 +19,6 @@ $RECYCLE.BIN/
 .vscode/
 .idea/
 
-# Test output binaries (optional, keep release binaries if desired)
+# Temporary test binaries
 generated_by_rawx.exe
 output.exe
